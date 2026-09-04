@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ffmpeg is a hard requirement: tests/test_api.py::test_health asserts the
+      # /health endpoint reports ffmpeg as available. PortAudio is deliberately
+      # NOT installed so the headless device-resolution tests skip cleanly (they
+      # need real audio hardware and are environment-dependent by design).
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # --frozen pins the exact locked versions. Only base + dev extras are
+      # installed; the optional `diar` extra (PyTorch) is not needed for the
+      # suite, which uses the numpy-based diarization engine.
+      - name: Install Python dependencies
+        run: uv sync --frozen --extra dev
+
+      # `-q` is already in pyproject [tool.pytest] addopts, so a single quiet
+      # level keeps the final "N passed" summary line in the CI log.
+      - name: Run test suite
+        run: uv run pytest
+
+  ui:
+    name: UI typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      # Runs `tsc --noEmit && vite build` (strict typecheck + production bundle).
+      - name: Build
+        working-directory: ui
+        run: npm run build

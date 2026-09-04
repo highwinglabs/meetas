@@ -1,0 +1,61 @@
+[project]
+name = "meeting-assistant"
+version = "0.1.0"
+description = "Local, privacy-first meeting assistant (Phase 1: capture & persistence core)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-dotenv>=1.0",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "pydantic>=2.6",
+    "numpy>=1.26",
+    "sounddevice>=0.4.6",
+    "keyring>=24.0",
+    # Phase 2 ASR engine (CTranslate2; pulls ctranslate2, av, onnxruntime, tokenizers)
+    "faster-whisper>=1.0",
+    # Optional Parakeet TDT live ASR via the local ONNX runtime.
+    "onnx-asr[cpu,hub]>=0.12",
+    # Local project-document extraction for the project chat.
+    "pypdf>=5.0",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6.23",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+# Later phases (diarization / silero-VAD) - CPU-only build to stay lean.
+diar = [
+    "torch>=2.2",
+]
+
+[project.scripts]
+meeting-core = "core.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*"]
+exclude = ["core.store.migrations*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+# CPU-only PyTorch wheels (this host has no GPU) - keeps the environment lean.
+[tool.uv]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

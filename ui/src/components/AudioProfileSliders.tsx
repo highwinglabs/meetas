@@ -1,0 +1,71 @@
+import type { AudioEnhancementProfile } from "../types";
+import { fmtHMS } from "../format";
+import type { AudioSelectionRange, NoiseProfileRange } from "./AudioWaveform";
+
+export type NoiseProfileMode = "automatic" | "manual";
+
+export default function AudioProfileSliders({
+  profile,
+  onPatch,
+  onToggleNoiseReduction,
+  noiseProfileMode,
+  onNoiseProfileModeChange,
+  noiseProfileRange,
+  waveformDuration,
+  audioRange,
+  onSelectionBoundaryChange,
+  onUseSelectionAsNoiseProfile,
+  id,
+}: {
+  profile: AudioEnhancementProfile;
+  onPatch: (patch: Partial<AudioEnhancementProfile>) => void;
+  onToggleNoiseReduction: (enabled: boolean) => void;
+  noiseProfileMode: NoiseProfileMode;
+  onNoiseProfileModeChange: (mode: NoiseProfileMode) => void;
+  noiseProfileRange: NoiseProfileRange | null;
+  waveformDuration: number;
+  audioRange: AudioSelectionRange;
+  onSelectionBoundaryChange: (boundary: "start" | "end", value: number) => void;
+  onUseSelectionAsNoiseProfile: () => void;
+  id: string;
+}) {
+  const audioProfile = profile;
+  return (
+    <div className="audio-sliders">
+      <div className={`audio-slider audio-noise-reduction${audioProfile.noise_reduction_enabled ? "" : " collapsed"}`}>
+        <span><span><input type="checkbox" checked={audioProfile.noise_reduction_enabled} onChange={(e) => onToggleNoiseReduction(e.target.checked)} /> Rauschreduzierung</span><output>{audioProfile.noise_reduction_enabled ? "Aktiv" : ""}</output></span>
+        {audioProfile.noise_reduction_enabled && <>
+          <div className="audio-profile-mode" role="radiogroup" aria-label="Rauschprofil auswählen">
+            <label><input type="radio" name={`noise-profile-mode-${id}`} checked={noiseProfileMode === "automatic"} onChange={() => onNoiseProfileModeChange("automatic")} /> Automatisch erkennen</label>
+            <label><input type="radio" name={`noise-profile-mode-${id}`} checked={noiseProfileMode === "manual"} onChange={() => onNoiseProfileModeChange("manual")} /> Bereich manuell auswählen</label>
+          </div>
+          {noiseProfileMode === "automatic" ? (
+            <p className="audio-profile-hint">Eine ruhige Stelle wird automatisch als Rauschreferenz verwendet.</p>
+          ) : <>
+            <div className="audio-selection-fields">
+              <label><span>Start</span><input type="number" min={0} max={Math.max(0, waveformDuration - 1)} step={0.01} value={audioRange.start} onChange={(e) => onSelectionBoundaryChange("start", Number(e.target.value))} /> s</label>
+              <label><span>Ende</span><input type="number" min={Math.min(waveformDuration, audioRange.start + 1)} max={waveformDuration} step={0.01} value={Math.min(waveformDuration, audioRange.start + audioRange.duration)} onChange={(e) => onSelectionBoundaryChange("end", Number(e.target.value))} /> s</label>
+              <span className="dim">Ziehen = grob auswählen · Felder = exakt korrigieren</span>
+            </div>
+            <div className="audio-selection-actions">
+              <button type="button" className="btn small" onClick={onUseSelectionAsNoiseProfile}>Markierten Bereich als Rauschprofil verwenden</button>
+              <span className="dim">{noiseProfileRange ? `Bereich übernommen · ${fmtHMS(noiseProfileRange.start_s)} – ${fmtHMS(noiseProfileRange.end_s)}` : "Noch keinen Bereich ausgewählt"}</span>
+            </div>
+          </>}
+        </>}
+        {audioProfile.noise_reduction_enabled && <div className="audio-noise-strength">
+          <div className="audio-noise-strength-label"><span>Stärke</span><output>{audioProfile.noise_reduction_db} dB</output></div>
+          <input type="range" min={0} max={20} step={1} value={audioProfile.noise_reduction_db} onChange={(e) => onPatch({ noise_reduction_db: Number(e.target.value) })} />
+        </div>}
+      </div>
+      <div className={`audio-slider${audioProfile.gate_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.gate_enabled} onChange={(e) => onPatch({ gate_enabled: e.target.checked })} /> Expander</span><output>{audioProfile.gate_threshold_db} dB</output></span><input type="range" min={-60} max={-10} step={1} value={audioProfile.gate_threshold_db} onChange={(e) => onPatch({ gate_threshold_db: Number(e.target.value) })} disabled={!audioProfile.gate_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>Absenkung</span><input type="number" min={0} max={1} step={0.01} value={audioProfile.gate_range} onChange={(e) => onPatch({ gate_range: Number(e.target.value) })} disabled={!audioProfile.gate_enabled} /></label><label className="audio-inline-field"><span>Verhältnis</span><input type="number" min={1} max={20} step={0.5} value={audioProfile.gate_ratio} onChange={(e) => onPatch({ gate_ratio: Number(e.target.value) })} disabled={!audioProfile.gate_enabled} />:1</label><label className="audio-inline-field"><span>Attack</span><input type="number" min={1} max={200} step={1} value={audioProfile.gate_attack_ms} onChange={(e) => onPatch({ gate_attack_ms: Number(e.target.value) })} disabled={!audioProfile.gate_enabled} /> ms</label><label className="audio-inline-field"><span>Release</span><input type="number" min={20} max={2000} step={10} value={audioProfile.gate_release_ms} onChange={(e) => onPatch({ gate_release_ms: Number(e.target.value) })} disabled={!audioProfile.gate_enabled} /> ms</label><label className="audio-inline-field"><span>Knee</span><input type="number" min={1} max={8} step={0.1} value={audioProfile.gate_knee} onChange={(e) => onPatch({ gate_knee: Number(e.target.value) })} disabled={!audioProfile.gate_enabled} /></label></div></div>
+      <div className={`audio-slider${audioProfile.hum_filter_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.hum_filter_enabled} onChange={(e) => onPatch({ hum_filter_enabled: e.target.checked })} /> Brummfilter</span><output>{audioProfile.hum_frequency_hz} Hz</output></span><input type="range" min={50} max={60} step={10} value={audioProfile.hum_frequency_hz} onChange={(e) => onPatch({ hum_frequency_hz: Number(e.target.value) })} disabled={!audioProfile.hum_filter_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>Absenkung</span><input type="number" min={0} max={24} step={1} value={audioProfile.hum_reduction_db} onChange={(e) => onPatch({ hum_reduction_db: Number(e.target.value) })} disabled={!audioProfile.hum_filter_enabled} /> dB</label></div></div>
+      <label className={`audio-slider${audioProfile.highpass_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.highpass_enabled} onChange={(e) => onPatch({ highpass_enabled: e.target.checked })} /> Hochpass / Trittschall</span><output>{audioProfile.highpass_hz} Hz</output></span><input type="range" min={0} max={300} step={5} value={audioProfile.highpass_hz} onChange={(e) => onPatch({ highpass_hz: Number(e.target.value) })} disabled={!audioProfile.highpass_enabled} /></label>
+      <div className={`audio-slider${audioProfile.presence_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.presence_enabled} onChange={(e) => onPatch({ presence_enabled: e.target.checked })} /> Sprachklarheit</span><output>{audioProfile.presence_db} dB</output></span><input type="range" min={-6} max={6} step={0.5} value={audioProfile.presence_db} onChange={(e) => onPatch({ presence_db: Number(e.target.value) })} disabled={!audioProfile.presence_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>Frequenz</span><input type="number" min={1500} max={6000} step={100} value={audioProfile.presence_hz} onChange={(e) => onPatch({ presence_hz: Number(e.target.value) })} disabled={!audioProfile.presence_enabled} /> Hz</label><label className="audio-inline-field"><span>Q</span><input type="number" min={0.3} max={4} step={0.1} value={audioProfile.presence_q} onChange={(e) => onPatch({ presence_q: Number(e.target.value) })} disabled={!audioProfile.presence_enabled} /></label></div></div>
+      <div className={`audio-slider${audioProfile.deesser_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.deesser_enabled} onChange={(e) => onPatch({ deesser_enabled: e.target.checked })} /> De-Esser</span><output>{Math.round(audioProfile.deesser_intensity * 100)} %</output></span><input type="range" min={0} max={1} step={0.05} value={audioProfile.deesser_intensity} onChange={(e) => onPatch({ deesser_intensity: Number(e.target.value) })} disabled={!audioProfile.deesser_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>Intensität</span><input type="number" min={0} max={1} step={0.05} value={audioProfile.deesser_intensity} onChange={(e) => onPatch({ deesser_intensity: Number(e.target.value) })} disabled={!audioProfile.deesser_enabled} /></label><label className="audio-inline-field"><span>Max. Absenkung</span><input type="number" min={0} max={1} step={0.05} value={audioProfile.deesser_max_reduction} onChange={(e) => onPatch({ deesser_max_reduction: Number(e.target.value) })} disabled={!audioProfile.deesser_enabled} /></label><label className="audio-inline-field"><span>Höhen erhalten</span><input type="number" min={0} max={1} step={0.05} value={audioProfile.deesser_treble_keep} onChange={(e) => onPatch({ deesser_treble_keep: Number(e.target.value) })} disabled={!audioProfile.deesser_enabled} /></label></div></div>
+      <div className={`audio-slider${audioProfile.compressor_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.compressor_enabled} onChange={(e) => onPatch({ compressor_enabled: e.target.checked })} /> Kompressor</span><output>{audioProfile.compressor_ratio}:1</output></span><input type="range" min={1} max={10} step={0.5} value={audioProfile.compressor_ratio} onChange={(e) => onPatch({ compressor_ratio: Number(e.target.value) })} disabled={!audioProfile.compressor_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>Schwelle</span><input type="number" min={-45} max={-3} step={1} value={audioProfile.compressor_threshold_db} onChange={(e) => onPatch({ compressor_threshold_db: Number(e.target.value) })} disabled={!audioProfile.compressor_enabled} /> dB</label><label className="audio-inline-field"><span>Attack</span><input type="number" min={1} max={200} step={1} value={audioProfile.compressor_attack_ms} onChange={(e) => onPatch({ compressor_attack_ms: Number(e.target.value) })} disabled={!audioProfile.compressor_enabled} /> ms</label><label className="audio-inline-field"><span>Release</span><input type="number" min={20} max={2000} step={10} value={audioProfile.compressor_release_ms} onChange={(e) => onPatch({ compressor_release_ms: Number(e.target.value) })} disabled={!audioProfile.compressor_enabled} /> ms</label><label className="audio-inline-field"><span>Knee</span><input type="number" min={1} max={8} step={0.1} value={audioProfile.compressor_knee} onChange={(e) => onPatch({ compressor_knee: Number(e.target.value) })} disabled={!audioProfile.compressor_enabled} /></label><label className="audio-inline-field"><span>Makeup</span><input type="number" min={0} max={12} step={0.5} value={audioProfile.compressor_makeup_db} onChange={(e) => onPatch({ compressor_makeup_db: Number(e.target.value) })} disabled={!audioProfile.compressor_enabled} /> dB</label></div></div>
+      <div className={`audio-slider${audioProfile.loudness_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.loudness_enabled} onChange={(e) => onPatch({ loudness_enabled: e.target.checked })} /> Lautheit normalisieren</span><output>{audioProfile.loudness_lufs} LUFS</output></span><input type="range" min={-30} max={-12} step={1} value={audioProfile.loudness_lufs} onChange={(e) => onPatch({ loudness_lufs: Number(e.target.value) })} disabled={!audioProfile.loudness_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>True Peak</span><input type="number" min={-6} max={-0.1} step={0.1} value={audioProfile.loudness_true_peak_db} onChange={(e) => onPatch({ loudness_true_peak_db: Number(e.target.value) })} disabled={!audioProfile.loudness_enabled} /> dB</label><label className="audio-inline-field"><span>Dynamikbereich</span><input type="number" min={1} max={20} step={1} value={audioProfile.loudness_range_lu} onChange={(e) => onPatch({ loudness_range_lu: Number(e.target.value) })} disabled={!audioProfile.loudness_enabled} /> LU</label></div></div>
+      <div className={`audio-slider${audioProfile.limiter_enabled ? "" : " collapsed"}`}><span><span><input type="checkbox" checked={audioProfile.limiter_enabled} onChange={(e) => onPatch({ limiter_enabled: e.target.checked })} /> Limiter</span><output>{audioProfile.limiter_db} dB</output></span><input type="range" min={-6} max={-0.1} step={0.5} value={audioProfile.limiter_db} onChange={(e) => onPatch({ limiter_db: Number(e.target.value) })} disabled={!audioProfile.limiter_enabled} /><div className="audio-control-row"><label className="audio-inline-field"><span>Attack</span><input type="number" min={1} max={100} step={1} value={audioProfile.limiter_attack_ms} onChange={(e) => onPatch({ limiter_attack_ms: Number(e.target.value) })} disabled={!audioProfile.limiter_enabled} /> ms</label><label className="audio-inline-field"><span>Release</span><input type="number" min={10} max={1000} step={10} value={audioProfile.limiter_release_ms} onChange={(e) => onPatch({ limiter_release_ms: Number(e.target.value) })} disabled={!audioProfile.limiter_enabled} /> ms</label></div></div>
+    </div>
+  );
+}

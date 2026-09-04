@@ -1,0 +1,52 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Local data & runtime artifacts (never commit user data / DB / logs)
+data/
+logs/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+
+# Secrets & environment (config lives in env vars, not in the repo)
+.env
+.env.*
+# ...except the documented, credential-free example template
+!.env.example
+*.key
+*.pem
+*.p12
+
+# Node / Vite
+ui/node_modules/
+ui/dist/
+npm-debug.log*
+
+# Models / large local weights (downloaded locally, not versioned)
+*.bin
+*.gguf
+*.pt
+*.ckpt
+models/
+# ``core.models`` is application source, not downloaded model data.
+!core/models/
+!core/models/*.py
+
+# Local-only development/agent config (kept on disk, never committed or published)
+AGENTS.md
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

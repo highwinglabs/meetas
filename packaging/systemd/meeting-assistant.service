@@ -1,0 +1,14 @@
+[Unit]
+Description=Local Meeting Assistant Core
+
+[Service]
+Type=simple
+WorkingDirectory=%h/meeting-assistant
+ExecStart=%h/meeting-assistant/.venv/bin/meeting-core serve
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target
