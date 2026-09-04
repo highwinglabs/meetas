@@ -33,6 +33,35 @@ web UI is a pure client of that API and is served statically by the core itself.
 
 ---
 
+## Quick start (Linux, ~3 minutes)
+
+The web UI is **prebuilt** in `ui/dist`, so a normal install needs **no Node/npm**.
+From a fresh clone, run the (reviewable) installer:
+
+```bash
+./install.sh
+```
+
+`install.sh` prints exactly what it will install and only adds what is missing:
+the system packages `ffmpeg` + PortAudio, **Python 3.12 via `uv`**, and the locked
+Python dependencies. It then initializes storage and starts the service. Open:
+
+    http://127.0.0.1:8765/
+
+| Flag | Effect |
+|---|---|
+| `--with-models` | Also download the live ASR model (network required) |
+| `--no-start` | Install + initialize only; do not start the service |
+
+ASR models are downloaded **on demand** from the UI (network + explicit confirmation);
+by default nothing is downloaded. A local LLM server is optional — with
+`MA_LLM_MOCK=true` the full pipeline runs without one.
+
+**Developers** working from source (Node/npm, test suite, `npm run dev`) should use the
+full [Installation](#installation) section instead.
+
+---
+
 ## Requirements
 
 | Component | Role | Notes |

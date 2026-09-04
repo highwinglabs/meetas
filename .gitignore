@@ -30,7 +30,7 @@ logs/
 
 # Node / Vite
 ui/node_modules/
-ui/dist/
+!ui/dist/
 npm-debug.log*
 
 # Models / large local weights (downloaded locally, not versioned)
