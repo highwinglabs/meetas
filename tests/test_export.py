@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from core import export as export_mod
 from core.export import export_meeting
 from core.store.db import session_scope
 from core.store.models import Meeting, Recording
@@ -112,3 +115,23 @@ def test_export_markdown_localised_by_analysis_language(config, finalize_meeting
     assert "## Summary" in md            # localised analysis section heading
     assert "## Source references" in md  # localised chrome
     assert "## Kurzfassung" not in md
+
+
+def test_fmt_dt_uses_injected_timezone(monkeypatch):
+    # Berlin in summer is CEST (UTC+2); naive input is interpreted as UTC.
+    monkeypatch.setattr(export_mod, "_local_timezone", lambda: ZoneInfo("Europe/Berlin"))
+    assert export_mod._fmt_dt(datetime(2026, 9, 5, 10, 0, 0, tzinfo=timezone.utc)) == "2026-09-05 12:00:00 CEST"
+    assert export_mod._fmt_dt(datetime(2026, 9, 5, 10, 0, 0)) == "2026-09-05 12:00:00 CEST"
+    # New York in summer is EDT (UTC-4).
+    monkeypatch.setattr(export_mod, "_local_timezone", lambda: ZoneInfo("America/New_York"))
+    assert export_mod._fmt_dt(datetime(2026, 9, 5, 12, 0, 0, tzinfo=timezone.utc)) == "2026-09-05 08:00:00 EDT"
+    # A winter date in Berlin is CET (UTC+1) -- the named zone honours DST.
+    monkeypatch.setattr(export_mod, "_local_timezone", lambda: ZoneInfo("Europe/Berlin"))
+    assert export_mod._fmt_dt(datetime(2026, 1, 15, 10, 0, 0, tzinfo=timezone.utc)) == "2026-01-15 11:00:00 CET"
+
+
+def test_fmt_dt_default_uses_local_system_zone():
+    # The un-patched default must render in the OS-local zone, i.e. match
+    # Python's own local conversion of the same instant (deterministic on any host).
+    now_utc = datetime.now(timezone.utc)
+    assert export_mod._fmt_dt(now_utc) == now_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")

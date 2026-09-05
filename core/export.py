@@ -109,11 +109,37 @@ def _fmt_ts(seconds: float | None) -> str:
     return f"{s // 60:02d}:{s % 60:02d}"
 
 
+def _local_zone_name() -> str | None:
+    """Best-effort IANA name of the system-local timezone (e.g. ``Europe/Berlin``)."""
+    tz = os.environ.get("TZ")
+    if tz and "/" in tz:
+        return tz
+    try:
+        if Path("/etc/localtime").is_symlink():
+            target = os.readlink("/etc/localtime")
+            if "zoneinfo/" in target:
+                return target.rsplit("zoneinfo/", 1)[1]
+    except OSError:
+        pass
+    return None
+
+
+def _local_timezone() -> ZoneInfo | timezone:
+    """System-local timezone used for human-readable export timestamps."""
+    name = _local_zone_name()
+    if name:
+        try:
+            return ZoneInfo(name)
+        except Exception:
+            pass
+    return datetime.now(timezone.utc).astimezone().tzinfo
+
+
 def _fmt_dt(dt, lang: str = "de") -> str:
     if not dt:
         return analysis_schema.missing_text(lang)
     aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-    return aware.astimezone(ZoneInfo("Europe/Berlin")).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return aware.astimezone(_local_timezone()).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _load(meeting_id: str, include_analysis: bool = True) -> dict:
