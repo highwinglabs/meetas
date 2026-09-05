@@ -1,4 +1,5 @@
 import type { AnalysisData } from "./types";
+import { activeLocale, type MessageKey } from "./i18n/messages";
 
 export function fmtHMS(sec: number | null | undefined): string {
   if (sec == null || Number.isNaN(sec)) return "--:--:--";
@@ -22,7 +23,7 @@ export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "–";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "–";
-  return d.toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Berlin" });
+  return d.toLocaleString(activeLocale(), { dateStyle: "medium", timeStyle: "short" });
 }
 
 export function fmtDateOnly(value: string | null | undefined): string {
@@ -30,21 +31,25 @@ export function fmtDateOnly(value: string | null | undefined): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (match) {
     const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    if (!Number.isNaN(date.getTime())) return date.toLocaleDateString("de-DE");
+    if (!Number.isNaN(date.getTime())) return date.toLocaleDateString(activeLocale());
   }
   return fmtDate(value);
 }
 
-export const STATUS_LABEL: Record<string, string> = {
-  recording: "Aufnahme",
-  paused: "Pausiert",
-  ready: "Bereit",
-  transcribing: "Transkribieren",
-  analyzing: "Analyse läuft",
-  done: "Fertig",
-  failed: "Fehler",
-  archived: "Archiviert",
+const STATUS_KEYS: Record<string, MessageKey> = {
+  recording: "status.recording",
+  paused: "status.paused",
+  ready: "status.ready",
+  transcribing: "status.transcribing",
+  analyzing: "status.analyzing",
+  done: "status.done",
+  failed: "status.failed",
+  archived: "status.archived",
 };
+
+export function statusKey(status: string): MessageKey | null {
+  return STATUS_KEYS[status] ?? null;
+}
 
 export function statusClass(status: string): string {
   if (status === "recording" || status === "paused") return "live";

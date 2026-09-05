@@ -21,6 +21,7 @@ from core.audio.capture import CaptureSession, CaptureStatus
 from core.audio.devices import resolve_input_device, resolve_system_audio_device, default_input_rate
 from core.audio.stream import AudioSource, CombinedSource, LiveSource, probe_portaudio, try_rates
 from core.audio.assembly import verify_original
+from core import i18n
 from core.analysis.processor import AnalysisProcessor
 from core.backup import create_backup
 from core.config import Config
@@ -255,6 +256,10 @@ class MeetingService(
 
     # --- consent ---
     def consent_text(self) -> str:
+        # Localise only the built-in German notice (or an empty one) for the
+        # requesting language; a user-customised notice is returned verbatim.
+        if (self.config.consent_text or "").strip() in ("", i18n.DEFAULT_CONSENT_DE.strip()):
+            return i18n.consent_text_for_language(i18n.current_language.get())
         return self.config.consent_text
 
     def consent_acknowledged(self) -> bool:

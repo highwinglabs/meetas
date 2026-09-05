@@ -22,7 +22,7 @@ from core.security.secrets import NetworkBlockedError
 from core.service import (
     ActiveMeetingError, ConsentRequiredError, MeetingService, UnknownMeetingError, UnknownTaskError,
 )
-from core import __version__
+from core import __version__, i18n
 
 router = APIRouter()
 
@@ -36,7 +36,7 @@ def set_service(service: MeetingService) -> None:
 
 def get_service() -> MeetingService:
     if _service is None:
-        raise HTTPException(503, "Service nicht initialisiert")
+        raise HTTPException(503, i18n.localize("Service nicht initialisiert"))
     return _service
 
 
@@ -44,34 +44,34 @@ def _handle(func, *args, **kwargs):
     try:
         return func(*args, **kwargs)
     except ConsentRequiredError as exc:
-        raise HTTPException(409, str(exc))
+        raise HTTPException(409, i18n.localize(str(exc)))
     except ActiveMeetingError as exc:
-        raise HTTPException(409, str(exc))
+        raise HTTPException(409, i18n.localize(str(exc)))
     except UnknownMeetingError as exc:
-        raise HTTPException(404, f"Meeting nicht gefunden: {exc.args[0]}")
+        raise HTTPException(404, i18n.localize(f"Meeting nicht gefunden: {exc.args[0]}"))
     except UnknownTaskError as exc:
-        raise HTTPException(404, f"Aufgabe nicht gefunden: {exc.args[0]}")
+        raise HTTPException(404, i18n.localize(f"Aufgabe nicht gefunden: {exc.args[0]}"))
     except ModelNotReadyError as exc:
-        raise HTTPException(409, str(exc))
+        raise HTTPException(409, i18n.localize(str(exc)))
     except NetworkBlockedError as exc:
-        raise HTTPException(409, str(exc))
+        raise HTTPException(409, i18n.localize(str(exc)))
     # LLM errors (Phase 3): busy/unavailable -> 503 (server-side, retryable),
     # other LLM failures -> 400. These are subclasses of LLMError, so catch
     # them before the base type.
     except ServerBusyError as exc:
-        raise HTTPException(503, str(exc))
+        raise HTTPException(503, i18n.localize(str(exc)))
     except LLMUnavailableError as exc:
-        raise HTTPException(503, str(exc))
+        raise HTTPException(503, i18n.localize(str(exc)))
     except LLMError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, i18n.localize(str(exc)))
     except ASRError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, i18n.localize(str(exc)))
     except KeyError as exc:
         # Generic fallback for non-meeting resources (projects, files,
         # uploads, versions, backups): meeting/task have dedicated classes.
-        raise HTTPException(404, f"Objekt mit der ID {exc.args[0]} nicht gefunden.")
+        raise HTTPException(404, i18n.localize(f"Objekt mit der ID {exc.args[0]} nicht gefunden."))
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, i18n.localize(str(exc)))
 
 
 @router.get("/health")
@@ -258,14 +258,14 @@ async def upload_file(request: Request, filename: str, title: str | None = None,
     declared = request.headers.get("content-length")
     try:
         if declared is not None and int(declared) > max_bytes:
-            raise HTTPException(413, f"Upload ist zu groß (max. {max_bytes // (1024 * 1024)} MiB direkt).")
+            raise HTTPException(413, i18n.localize(f"Upload ist zu groß (max. {max_bytes // (1024 * 1024)} MiB direkt)."))
     except ValueError:
         pass
     content = bytearray()
     async for chunk in request.stream():
         if len(content) + len(chunk) > max_bytes:
             raise HTTPException(
-                413, f"Upload ist zu groß (max. {max_bytes // (1024 * 1024)} MiB).")
+                413, i18n.localize(f"Upload ist zu groß (max. {max_bytes // (1024 * 1024)} MiB)."))
         content.extend(chunk)
     settings_header = request.headers.get("x-meeting-settings", "{}")
     try:
@@ -302,7 +302,7 @@ async def upload_chunk(upload_id: str, request: Request):
     try:
         offset = int(raw_offset)
     except ValueError:
-        raise HTTPException(400, "X-Upload-Offset fehlt oder ist ungültig.")
+        raise HTTPException(400, i18n.localize("X-Upload-Offset fehlt oder ist ungültig."))
     # Stream the body with a hard per-chunk cap (413 on exceed) instead of
     # `await request.body()`, which would buffer an unbounded request in memory.
     try:
@@ -313,7 +313,7 @@ async def upload_chunk(upload_id: str, request: Request):
     async for chunk in request.stream():
         if len(content) + len(chunk) > max_bytes:
             raise HTTPException(
-                413, f"Chunk ist zu groß (max. {max_bytes // (1024 * 1024)} MiB pro Chunk).")
+                413, i18n.localize(f"Chunk ist zu groß (max. {max_bytes // (1024 * 1024)} MiB pro Chunk)."))
         content.extend(chunk)
     return _handle(get_service().append_upload_chunk, upload_id, offset,
                     bytes(content))

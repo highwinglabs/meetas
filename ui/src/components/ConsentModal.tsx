@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { Note } from "./ui";
+import { useI18n } from "../i18n";
 
 export default function ConsentModal({ text, open, onClose, onAcknowledged }: {
   text: string;
@@ -8,6 +9,7 @@ export default function ConsentModal({ text, open, onClose, onAcknowledged }: {
   onClose: () => void;
   onAcknowledged: () => void;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,13 +32,13 @@ export default function ConsentModal({ text, open, onClose, onAcknowledged }: {
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal">
-        <h2>Einwilligung zur Aufzeichnung</h2>
+        <h2>{t("consent.title")}</h2>
         <p className="consent-text">{text}</p>
         {error && <Note kind="error">{error}</Note>}
         <div className="modal-actions">
-          <button className="btn" onClick={onClose} disabled={busy}>Später</button>
+          <button className="btn" onClick={onClose} disabled={busy}>{t("consent.later")}</button>
           <button className="btn primary" onClick={ack} disabled={busy}>
-            {busy ? "Wird gespeichert…" : "Ich willige ein"}
+            {busy ? t("consent.saving") : t("consent.acknowledge")}
           </button>
         </div>
       </div>

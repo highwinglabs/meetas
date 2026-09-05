@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AppSettings, BenchmarkResult, MeetingListItem, ModelSpec } from "../types";
 import { Note, Spinner } from "./ui";
+import { useI18n } from "../i18n";
 
 export default function ModelStatus() {
+  const { t } = useI18n();
   const [models, setModels] = useState<ModelSpec[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
@@ -23,20 +25,20 @@ export default function ModelStatus() {
 
   const installAsr = async (model: ModelSpec) => {
     setBusy(model.id); setError(null); setOk(null);
-    try { const r = await api.downloadAsr(true, model.id); setOk(`${r.name} ist jetzt ${r.ready ? "installiert und bereit" : "nicht installiert"}.`); await load(); }
+    try { const r = await api.downloadAsr(true, model.id); setOk(r.ready ? t("model.asr_installed", { name: r.name }) : t("model.asr_not_installed", { name: r.name })); await load(); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   };
   const installLlm = async (model: ModelSpec) => {
-    if (!window.confirm(`„${model.name}“ aus Ollama herunterladen? Dafür wird ein Netzwerkzugriff benötigt.`)) return;
+    if (!window.confirm(t("model.confirm_install_llm", { name: model.name }))) return;
     setBusy(`install:${model.id}`); setError(null); setOk(null);
-    try { const result = await api.installLlm(model.id, true); setOk(`${result.name} ist jetzt installiert.`); await load(); }
+    try { const result = await api.installLlm(model.id, true); setOk(t("model.installed", { name: result.name })); await load(); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   };
   const choose = async (key: "live_asr_model" | "quality_asr_model" | "default_summary_model", model: string) => {
     setBusy(model); setError(null);
-    try { setSettings(await api.updateSettings({ [key]: model })); setOk("Vorauswahl gespeichert."); }
+    try { setSettings(await api.updateSettings({ [key]: model })); setOk(t("model.preselection_saved")); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   };
@@ -52,8 +54,8 @@ export default function ModelStatus() {
     setBusy(`llm:${model}`); setError(null); setLlmTest(null);
     try {
       const result = await api.testLlm(model);
-      const name = models.find((item) => item.id === model)?.name ?? "KI-Modell";
-      setLlmTest(`${name}: Antwort „${result.response}“ in ${result.seconds} s`);
+      const name = models.find((item) => item.id === model)?.name ?? t("common.ai_model");
+      setLlmTest(t("model.llm_test", { name, response: result.response, seconds: result.seconds }));
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(null); }
   };
@@ -70,33 +72,33 @@ export default function ModelStatus() {
   const otherAsr = asr.filter((m) => !m.installed && !activeAsrIds.has(m.id));
   const unavailableActiveAsr = asr.filter((m) => !m.installed && activeAsrIds.has(m.id));
   const asrUsage = (model: ModelSpec) => [
-    model.id === settings?.live_asr_model ? "Live-Text" : null,
-    model.id === settings?.quality_asr_model ? "vollständige Transkripte" : null,
-  ].filter(Boolean).join(" und ");
+    model.id === settings?.live_asr_model ? t("model.usage_live") : null,
+    model.id === settings?.quality_asr_model ? t("model.usage_full") : null,
+  ].filter(Boolean).join(t("model.join_and"));
   const llmUsage = (model: ModelSpec) => [
-    model.id === settings?.default_summary_model ? "schnelle Auswertungen" : null,
-    model.id === settings?.quality_analysis_model ? "Auswertungen mit höchster Qualität" : null,
-  ].filter(Boolean).join(" und ");
+    model.id === settings?.default_summary_model ? t("model.usage_quick") : null,
+    model.id === settings?.quality_analysis_model ? t("model.usage_quality") : null,
+  ].filter(Boolean).join(t("model.join_and"));
   const renderGroupHeader = (label: string, count: number, tone: string) => <div className={`model-group-head ${tone}`}><h3>{label}</h3><span className="count">{count}</span></div>;
   return <div className="panel">
-    <h1>Modelle</h1>{error && <Note kind="error">{error}</Note>}{ok && <Note kind="ok">{ok}</Note>}
-    <details className="model-section" open><summary>Transkription</summary>
-    <div className="card"><h2>Transkription</h2>{!settings ? <Spinner label="Lade…" /> : <div className="model-groups">
-      {(activeAsr.length > 0 || unavailableActiveAsr.length > 0) && <section className="model-group selected">{renderGroupHeader("Ausgewählt", activeAsr.length + unavailableActiveAsr.length, "selected")}{activeAsr.map((m) => <div className="model-row" key={`active-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">Für {asrUsage(m)}</span></div></div>)}{unavailableActiveAsr.map((m) => <div className="model-row" key={`active-unavailable-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">Für {asrUsage(m)}</span><span className="model-missing">Nicht lokal installiert</span></div></div>)}</section>}
-      {installedAsr.length > 0 && <section className="model-group installed">{renderGroupHeader("Installiert", installedAsr.length, "installed")}{installedAsr.map((m) => <div className="model-row" key={`installed-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose} · {m.size}</span></div><div className="model-controls"><button className="btn small" onClick={() => void choose("live_asr_model", m.id)}>Für Live-Text</button><button className="btn small" onClick={() => void choose("quality_asr_model", m.id)}>Für vollständiges Transkript</button><button className="btn small" onClick={() => void runBenchmark(m.id)} disabled={busy !== null}>{busy === `benchmark:${m.id}` ? "Teste…" : "Testen"}</button></div></div>)}</section>}
-      {otherAsr.length > 0 && <section className="model-group missing">{renderGroupHeader("Nicht installiert", otherAsr.length, "missing")}{otherAsr.map((m) => <div className="model-row" key={`other-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose} · {m.size}</span><span className="model-missing">Nicht installiert</span></div><div className="model-controls"><button className="btn small" onClick={() => void installAsr(m)} disabled={busy !== null}>{busy === m.id ? "Installiere…" : "Installieren"}</button></div></div>)}</section>}
+    <h1>{t("model.title")}</h1>{error && <Note kind="error">{error}</Note>}{ok && <Note kind="ok">{ok}</Note>}
+    <details className="model-section" open><summary>{t("model.transcription")}</summary>
+    <div className="card"><h2>{t("model.transcription")}</h2>{!settings ? <Spinner label={t("model.loading")} /> : <div className="model-groups">
+      {(activeAsr.length > 0 || unavailableActiveAsr.length > 0) && <section className="model-group selected">{renderGroupHeader(t("model.group_selected"), activeAsr.length + unavailableActiveAsr.length, "selected")}{activeAsr.map((m) => <div className="model-row" key={`active-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{t("model.for", { usage: asrUsage(m) })}</span></div></div>)}{unavailableActiveAsr.map((m) => <div className="model-row" key={`active-unavailable-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{t("model.for", { usage: asrUsage(m) })}</span><span className="model-missing">{t("model.not_local")}</span></div></div>)}</section>}
+      {installedAsr.length > 0 && <section className="model-group installed">{renderGroupHeader(t("model.group_installed"), installedAsr.length, "installed")}{installedAsr.map((m) => <div className="model-row" key={`installed-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose} · {m.size}</span></div><div className="model-controls"><button className="btn small" onClick={() => void choose("live_asr_model", m.id)}>{t("model.btn_live")}</button><button className="btn small" onClick={() => void choose("quality_asr_model", m.id)}>{t("model.btn_full")}</button><button className="btn small" onClick={() => void runBenchmark(m.id)} disabled={busy !== null}>{busy === `benchmark:${m.id}` ? t("model.testing") : t("model.test")}</button></div></div>)}</section>}
+      {otherAsr.length > 0 && <section className="model-group missing">{renderGroupHeader(t("model.group_missing"), otherAsr.length, "missing")}{otherAsr.map((m) => <div className="model-row" key={`other-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose} · {m.size}</span><span className="model-missing">{t("model.group_missing")}</span></div><div className="model-controls"><button className="btn small" onClick={() => void installAsr(m)} disabled={busy !== null}>{busy === m.id ? t("model.installing") : t("model.install")}</button></div></div>)}</section>}
     </div>}
       <details className="benchmark-details">
-        <summary>Transkriptionsmodell testen</summary>
-        <div className="benchmark-controls"><label className="field"><span>Testaufnahme</span><select value={testMeeting} onChange={(e) => setTestMeeting(e.target.value)}><option value="">Neueste lokale Aufnahme</option>{meetings.filter((m) => m.original_path).map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}</select></label></div>
-        {benchmark && <div className="benchmark-result"><strong>{models.find((item) => item.id === benchmark.model)?.name ?? "Testergebnis"}</strong><span>{benchmark.audio_seconds ?? "?"} s Audio · {benchmark.processing_seconds} s Verarbeitung · Faktor {benchmark.realtime_factor ?? "?"}</span><span>{benchmark.live_possible ? "Für Live-Text schnell genug" : "Für Live-Text zu langsam"}</span><pre>{benchmark.segments.map((s) => s.text).join(" ") || "(kein Text erkannt)"}</pre></div>}
+        <summary>{t("model.benchmark")}</summary>
+        <div className="benchmark-controls"><label className="field"><span>{t("model.test_recording")}</span><select value={testMeeting} onChange={(e) => setTestMeeting(e.target.value)}><option value="">{t("model.latest_recording")}</option>{meetings.filter((m) => m.original_path).map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}</select></label></div>
+        {benchmark && <div className="benchmark-result"><strong>{models.find((item) => item.id === benchmark.model)?.name ?? t("model.benchmark_result")}</strong><span>{t("model.benchmark_stats", { audio: benchmark.audio_seconds ?? "?", processing: benchmark.processing_seconds, factor: benchmark.realtime_factor ?? "?" })}</span><span>{benchmark.live_possible ? t("model.benchmark_fast") : t("model.benchmark_slow")}</span><pre>{benchmark.segments.map((s) => s.text).join(" ") || t("model.no_text")}</pre></div>}
       </details>
     </div></details>
-    <details className="model-section" open><summary>KI für Analyse und Chat</summary>
-    <div className="card"><h2>KI für Analyse und Chat</h2>{!settings ? <Spinner label="Lade…" /> : <div className="model-groups">
-      {(activeLlms.filter((m) => m.installed).length > 0 || unavailableActiveLlms.length > 0) && <section className="model-group selected">{renderGroupHeader("Ausgewählt", activeLlms.filter((m) => m.installed).length + unavailableActiveLlms.length, "selected")}{activeLlms.filter((m) => m.installed).map((m) => <div className="model-row" key={`active-llm-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose}</span><span className="model-ready">Für {llmUsage(m)}</span></div><button className="btn small" onClick={() => void testLlm(m.id)} disabled={busy !== null}>{busy === `llm:${m.id}` ? "Teste…" : "Testen"}</button></div>)}{unavailableActiveLlms.map((m) => <div className="model-row" key={`active-llm-unavailable-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">Für {llmUsage(m)}</span><span className="model-missing">Nicht lokal installiert</span></div></div>)}</section>}
-      {installedLlms.length > 0 && <section className="model-group installed">{renderGroupHeader("Installiert", installedLlms.length, "installed")}{installedLlms.map((m) => <div className="model-row" key={`installed-llm-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose}</span></div><button className="btn small" onClick={() => void choose("default_summary_model", m.id)} disabled={busy !== null}>Für neue Meetings vorauswählen</button><button className="btn small" onClick={() => void testLlm(m.id)} disabled={busy !== null}>{busy === `llm:${m.id}` ? "Teste…" : "Testen"}</button></div>)}</section>}
-      {otherLlms.length > 0 && <section className="model-group missing">{renderGroupHeader("Nicht installiert", otherLlms.length, "missing")}{otherLlms.map((m) => <div className="model-row" key={`other-llm-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose}</span><span className="model-missing">Noch nicht installiert</span></div><div className="model-controls"><button className="btn small" onClick={() => void installLlm(m)} disabled={busy !== null}>{busy === `install:${m.id}` ? "Installiere…" : "Installieren"}</button></div></div>)}</section>}
+    <details className="model-section" open><summary>{t("model.ai_analysis")}</summary>
+    <div className="card"><h2>{t("model.ai_analysis")}</h2>{!settings ? <Spinner label={t("model.loading")} /> : <div className="model-groups">
+      {(activeLlms.filter((m) => m.installed).length > 0 || unavailableActiveLlms.length > 0) && <section className="model-group selected">{renderGroupHeader(t("model.group_selected"), activeLlms.filter((m) => m.installed).length + unavailableActiveLlms.length, "selected")}{activeLlms.filter((m) => m.installed).map((m) => <div className="model-row" key={`active-llm-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose}</span><span className="model-ready">{t("model.for", { usage: llmUsage(m) })}</span></div><button className="btn small" onClick={() => void testLlm(m.id)} disabled={busy !== null}>{busy === `llm:${m.id}` ? t("model.testing") : t("model.test")}</button></div>)}{unavailableActiveLlms.map((m) => <div className="model-row" key={`active-llm-unavailable-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{t("model.for", { usage: llmUsage(m) })}</span><span className="model-missing">{t("model.not_local")}</span></div></div>)}</section>}
+      {installedLlms.length > 0 && <section className="model-group installed">{renderGroupHeader(t("model.group_installed"), installedLlms.length, "installed")}{installedLlms.map((m) => <div className="model-row" key={`installed-llm-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose}</span></div><button className="btn small" onClick={() => void choose("default_summary_model", m.id)} disabled={busy !== null}>{t("model.btn_preselect")}</button><button className="btn small" onClick={() => void testLlm(m.id)} disabled={busy !== null}>{busy === `llm:${m.id}` ? t("model.testing") : t("model.test")}</button></div>)}</section>}
+      {otherLlms.length > 0 && <section className="model-group missing">{renderGroupHeader(t("model.group_missing"), otherLlms.length, "missing")}{otherLlms.map((m) => <div className="model-row" key={`other-llm-${m.id}`}><div className="model-main"><strong>{m.name}</strong><span className="dim">{m.purpose}</span><span className="model-missing">{t("model.not_yet")}</span></div><div className="model-controls"><button className="btn small" onClick={() => void installLlm(m)} disabled={busy !== null}>{busy === `install:${m.id}` ? t("model.installing") : t("model.install")}</button></div></div>)}</section>}
       {llmTest && <Note kind="ok">{llmTest}</Note>}
     </div>}</div></details>
   </div>;

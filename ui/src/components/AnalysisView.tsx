@@ -1,6 +1,7 @@
 import type { AnalysisData, AnalysisEntry } from "../types";
 import { sectionsForLang, missingText, analysisLabel, analysisLangCode } from "../format";
 import { Note } from "./ui";
+import { useI18n } from "../i18n";
 
 function Entry({ e, isTask, lang }: { e: AnalysisEntry; isTask: boolean; lang: string }) {
   const miss = missingText(lang);
@@ -29,6 +30,7 @@ export default function AnalysisView({ content, markdown, model, outputLanguage 
   outputLanguage?: string | null;
 }) {
   const lang = analysisLangCode(outputLanguage);
+  const { t } = useI18n();
   let parsed: AnalysisData | null = null;
   let failed: string | null = null;
   try {
@@ -40,7 +42,7 @@ export default function AnalysisView({ content, markdown, model, outputLanguage 
   if (failed || !parsed) {
     return (
       <div>
-        {failed && <Note kind="warn">Die Auswertung konnte nicht vollständig formatiert werden. Der Inhalt wird vereinfacht angezeigt.</Note>}
+        {failed && <Note kind="warn">{t("analysis.format_failed")}</Note>}
         <pre className="markdown-raw">{markdown}</pre>
       </div>
     );
@@ -50,7 +52,7 @@ export default function AnalysisView({ content, markdown, model, outputLanguage 
   const sections = sectionsForLang(lang);
   return (
     <div className="analysis">
-      <div className="analysis-model dim">Modell: {model}{outputLanguage ? ` · Sprache: ${outputLanguage}` : ""}</div>
+      <div className="analysis-model dim">{t("analysis.model", { model })}{outputLanguage ? ` · ${t("analysis.language", { lang: outputLanguage })}` : ""}</div>
       {sections.map((s) => {
         const entries = (parsed[s.key] ?? []) as AnalysisEntry[];
         const isTask = s.key === "aufgaben";

@@ -4,6 +4,7 @@ import type {
   RagAnswer, SearchHit, Speaker, Tag, Task, TaskOverview, ChatTurn,
   AppSettings, AudioEnhancementProfile, ModelSpec, Project, UploadSession,
 } from "./types";
+import { msg } from "./i18n/messages";
 
 // Same-origin by default (the core serves this UI). Override with VITE_API_BASE
 // only if you host the UI on a different origin than the core.
@@ -33,7 +34,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
     });
   } catch {
-    throw new ApiError(0, "Keine Verbindung zum lokalen Core. Läuft `meeting-core daemon`?");
+    throw new ApiError(0, msg("api.noConnection"));
   }
   let body: unknown = null;
   try {
@@ -57,7 +58,7 @@ function extractMessage(body: unknown, status: number): string {
       return String(d);
     }
   }
-  return `HTTP ${status}`;
+  return msg("api.httpError", { status });
 }
 
 const qs = (obj: Record<string, string | number | null | undefined>): string => {

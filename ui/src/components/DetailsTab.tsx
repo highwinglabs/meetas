@@ -1,4 +1,5 @@
 import type { Project } from "../types";
+import { useI18n } from "../i18n";
 
 export default function DetailsTab({
   titleDraft,
@@ -31,34 +32,35 @@ export default function DetailsTab({
   onAutoTags: () => void;
   canAutoTags: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <>
       <div className="card meeting-meta-edit">
-        <h2>Meeting-Details</h2>
+        <h2>{t("details.title")}</h2>
         <div className="row wrap">
-          <label className="field grow"><span>Titel</span><input value={titleDraft} onChange={(e) => onTitleDraftChange(e.target.value)} /></label>
-          <label className="field"><span>Projekt / Ordner</span><select value={projectDraft} onChange={(e) => onProjectDraftChange(e.target.value)}><option value="">Kein Projekt</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          <button className="btn primary" onClick={onSave} disabled={saving || !titleDraft.trim()}>{saving ? "Speichere…" : "Änderungen speichern"}</button>
+          <label className="field grow"><span>{t("details.title_label")}</span><input value={titleDraft} onChange={(e) => onTitleDraftChange(e.target.value)} /></label>
+          <label className="field"><span>{t("details.project_label")}</span><select value={projectDraft} onChange={(e) => onProjectDraftChange(e.target.value)}><option value="">{t("details.no_project")}</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <button className="btn primary" onClick={onSave} disabled={saving || !titleDraft.trim()}>{saving ? t("common.saving") : t("common.save")}</button>
         </div>
       </div>
 
       <section className="block">
-        <h2>Tags <span className="count">{tags.length}</span></h2>
+        <h2>{t("details.tags")} <span className="count">{tags.length}</span></h2>
         <div className="tag-row">
-          {tags.map((t) => (
-            <span key={t} className="tag-chip">
-              {t}
-              <button className="tag-x" onClick={() => onRemoveTag(t)} title="Tag entfernen">×</button>
+          {tags.map((tag) => (
+            <span key={tag} className="tag-chip">
+              {tag}
+              <button className="tag-x" onClick={() => onRemoveTag(tag)} title={t("details.remove_tag")}>×</button>
             </span>
           ))}
-          {tags.length === 0 && <span className="dim">Keine Tags.</span>}
+          {tags.length === 0 && <span className="dim">{t("details.no_tags")}</span>}
         </div>
         <div className="row">
           <input className="tag-input" value={newTag} onChange={(e) => onNewTagChange(e.target.value)}
-            placeholder="Neues Tag…"
+            placeholder={t("details.new_tag_placeholder")}
             onKeyDown={(e) => { if (e.key === "Enter") onAddTag(); }} />
-          <button className="btn" onClick={onAddTag} disabled={!newTag.trim()}>Tag hinzufügen</button>
-          <button className="btn" onClick={onAutoTags} disabled={!canAutoTags}>Titel/Tags automatisch</button>
+          <button className="btn" onClick={onAddTag} disabled={!newTag.trim()}>{t("details.add_tag")}</button>
+          <button className="btn" onClick={onAutoTags} disabled={!canAutoTags}>{t("details.auto_tags")}</button>
         </div>
       </section>
     </>

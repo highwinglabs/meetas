@@ -3,6 +3,8 @@ import { api } from "../api";
 import type { BackupInfo } from "../types";
 import { fmtDate } from "../format";
 import { Note, Spinner } from "./ui";
+import { useI18n } from "../i18n";
+import { activeLocale } from "../i18n/messages";
 
 function fmtSize(bytes: number | null | undefined): string {
   if (bytes == null || Number.isNaN(bytes)) return "–";
@@ -15,6 +17,7 @@ function fmtSize(bytes: number | null | undefined): string {
 }
 
 export default function BackupPanel() {
+  const { t } = useI18n();
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,10 +46,7 @@ export default function BackupPanel() {
     setOk(null);
     try {
       const r = await api.createBackup(kind, note.trim());
-      setOk(
-        `Sicherung erstellt: ${r.kind}-Snapshot ` +
-        `(Integrität: ${r.integrity}${r.data_zip ? ", Audio/Exporte archiviert" : ""}).`,
-      );
+      setOk(t("backup.created", { kind: r.kind, integrity: r.integrity }) + (r.data_zip ? t("backup.archived") : "") + ").");
       setNote("");
       await load();
     } catch (e) {
@@ -73,16 +73,13 @@ export default function BackupPanel() {
 
   const confirmRestore = async () => {
     if (!preview) return;
-    if (!window.confirm(
-      "Wirklich wiederherstellen? Die aktuelle Datenbank wird durch die Sicherung ersetzt. " +
-      "Vorher wird automatisch ein Sicherheits-Snapshot der aktuellen Daten angelegt.",
-    )) return;
+    if (!window.confirm(t("backup.confirm_restore"))) return;
     setError(null);
     setOk(null);
     setBusy(true);
     try {
       await api.restoreBackup(preview.id, true);
-      setOk("Wiederherstellung abgeschlossen. Die Ansicht wird beim nächsten Öffnen aktualisiert.");
+      setOk(t("backup.restored"));
       setPreview(null);
       await load();
     } catch (e) {
@@ -93,26 +90,26 @@ export default function BackupPanel() {
   };
 
   const releaseStorage = async () => {
-    if (!window.confirm("Temporäre Dateien löschen? Aufnahmen, Meetings und Sicherungen bleiben erhalten.")) return;
+    if (!window.confirm(t("backup.confirm_release"))) return;
     setReleaseBusy(true); setError(null); setOk(null);
     try {
       const result = await api.releaseStorage();
-      setOk(`Temporäre Dateien entfernt (${Number(result.removed_bytes ?? 0).toLocaleString("de-DE")} Bytes).`);
+      setOk(t("backup.released", { n: Number(result.removed_bytes ?? 0).toLocaleString(activeLocale()) }));
     } catch (e) { setError((e as Error).message); }
     finally { setReleaseBusy(false); }
   };
 
   if (loading) {
-    return <div className="panel"><Spinner label="Lade Sicherungen…" /></div>;
+    return <div className="panel"><Spinner label={t("backup.loading")} /></div>;
   }
 
   return (
     <div className="panel">
       <div className="head-row">
         <div className="grow">
-          <h1 className="detail-title">Sicherung &amp; Wiederherstellung</h1>
+          <h1 className="detail-title">{t("backup.title")}</h1>
           <div className="detail-meta">
-            <span>{backups.length} Sicherung(en)</span>
+            <span>{t("backup.count", { n: backups.length })}</span>
           </div>
         </div>
       </div>
@@ -121,51 +118,51 @@ export default function BackupPanel() {
       {ok && <Note kind="ok">{ok}</Note>}
 
       <div className="card">
-        <h2>Neue Sicherung</h2>
+        <h2>{t("backup.new")}</h2>
         <div className="row wrap filters">
           <label className="field">
-            <span>Typ</span>
+            <span>{t("common.type")}</span>
             <select value={kind} onChange={(e) => setKind(e.target.value as "db" | "full")}>
-              <option value="db">Meetings und Einstellungen</option>
-              <option value="full">Alles inklusive Aufnahmen und Exporten</option>
+              <option value="db">{t("backup.type_db")}</option>
+              <option value="full">{t("backup.type_full")}</option>
             </select>
           </label>
           <label className="field grow">
-            <span>Notiz (optional)</span>
+            <span>{t("backup.note_label")}</span>
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="z. B. vor großer Änderung"
+              placeholder={t("backup.note_placeholder")}
               maxLength={512}
             />
           </label>
           <button className="btn primary" onClick={create} disabled={busy}>
-            {busy ? "Erstelle…" : "Sicherung erstellen"}
+            {busy ? t("backup.creating") : t("backup.create")}
           </button>
         </div>
       </div>
 
       <details className="card maintenance-details">
-        <summary>Wartung</summary>
+        <summary>{t("backup.maintenance")}</summary>
         <div className="maintenance-content">
-          <h2>Temporäre Dateien entfernen</h2>
-          <p className="hint">Aufnahmen, Meetings und Sicherungen bleiben erhalten.</p>
-          <button className="btn" onClick={() => void releaseStorage()} disabled={releaseBusy}>{releaseBusy ? "Entferne…" : "Temporäre Dateien entfernen"}</button>
+          <h2>{t("backup.remove_temp")}</h2>
+          <p className="hint">{t("backup.release_hint")}</p>
+          <button className="btn" onClick={() => void releaseStorage()} disabled={releaseBusy}>{releaseBusy ? t("backup.releasing") : t("backup.remove_temp")}</button>
         </div>
       </details>
 
       {!backups.length ? (
-        <Note>Keine Sicherungen.</Note>
+        <Note>{t("backup.empty")}</Note>
       ) : (
         <div className="card">
-          <h2>Verfügbare Sicherungen</h2>
+          <h2>{t("backup.available")}</h2>
           <div className="backup-list">
             {backups.map((b) => (
               <div key={b.id} className={"backup-row" + (b.exists ? "" : " missing")}>
                 <div className="backup-main">
                   <div className="backup-kind">
                     <span className="badge">{b.kind}</span>
-                    {!b.exists && <span className="badge warn">Datei fehlt</span>}
+                    {!b.exists && <span className="badge warn">{t("backup.missing_file")}</span>}
                   </div>
                   <div className="backup-sub">
                     <span>{fmtDate(b.created_at)}</span>
@@ -176,7 +173,7 @@ export default function BackupPanel() {
                 <div className="backup-controls">
                   {b.exists && (
                     <button className="btn small" onClick={() => previewRestore(b)} disabled={busy}>
-                      Vorschau
+                      {t("common.preview")}
                     </button>
                   )}
                 </div>
@@ -188,19 +185,19 @@ export default function BackupPanel() {
 
       {preview && (
         <div className="card restore-preview">
-          <h2>Wiederherstellung prüfen</h2>
+          <h2>{t("backup.check_restore")}</h2>
           <dl className="kv">
-            <dt>Sicherung</dt><dd>{preview.createdAt ? fmtDate(preview.createdAt) : "Ausgewählt"}<span className="path-value">{String(preview.plan.path ?? "")}</span></dd>
-            <dt>Typ</dt><dd>{String(preview.plan.kind ?? "")}</dd>
-            <dt>Prüfung</dt><dd>{String(preview.plan.integrity ?? "")}</dd>
-            <dt>Ziel</dt><dd className="path-value">{String(preview.plan.live_db ?? "")}</dd>
+            <dt>{t("backup.label_backup")}</dt><dd>{preview.createdAt ? fmtDate(preview.createdAt) : t("common.selected")}<span className="path-value">{String(preview.plan.path ?? "")}</span></dd>
+            <dt>{t("common.type")}</dt><dd>{String(preview.plan.kind ?? "")}</dd>
+            <dt>{t("backup.label_check")}</dt><dd>{String(preview.plan.integrity ?? "")}</dd>
+            <dt>{t("backup.label_target")}</dt><dd className="path-value">{String(preview.plan.live_db ?? "")}</dd>
           </dl>
           <p className="hint">{String(preview.plan.note ?? "")}</p>
           <div className="row">
             <button className="btn primary" onClick={confirmRestore} disabled={busy}>
-              {busy ? "Stelle wieder her…" : "Wirklich wiederherstellen"}
+              {busy ? t("backup.restoring") : t("backup.restore_confirm")}
             </button>
-            <button className="btn" onClick={() => setPreview(null)} disabled={busy}>Abbrechen</button>
+            <button className="btn" onClick={() => setPreview(null)} disabled={busy}>{t("common.cancel")}</button>
           </div>
         </div>
       )}

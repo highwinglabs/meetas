@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { ChatTurn, ModelSpec, Project, RagAnswer, Task } from "../types";
 import { fmtDate } from "../format";
 import { Note } from "./ui";
+import { useI18n } from "../i18n";
 
 type ProjectDetail = Project & {
   meetings: Array<{ id: string; title: string; status: string; start_at: string | null; duration_s: number | null }>;
@@ -15,6 +16,7 @@ type ProjectView = "overview" | "chat" | "meetings" | "tasks" | "files";
 type ProjectTaskFilter = "all" | "active" | "archived" | "trash";
 
 export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: string, segmentId?: string) => void }) {
+  const { t } = useI18n();
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -36,15 +38,15 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
   const [projectTaskFilter, setProjectTaskFilter] = useState<ProjectTaskFilter>("all");
 
   const fileStatusLabel = (file: ProjectDetail["files"][number]) => {
-    if (file.kind !== "document") return "Meeting erstellt";
-    if (file.extraction_status === "ready") return `Bereit · ${file.chunks ?? 0} Abschnitte`;
-    if (file.extraction_status === "failed") return file.extraction_error || "Nicht lesbar";
-    return "Wird vorbereitet";
+    if (file.kind !== "document") return t("project.file_meeting");
+    if (file.extraction_status === "ready") return t("project.file_ready", { n: file.chunks ?? 0 });
+    if (file.extraction_status === "failed") return file.extraction_error || t("project.file_unreadable");
+    return t("project.file_preparing");
   };
   const taskStatusLabel = (task: Task) => {
-    if (task.deleted_at) return "Papierkorb";
-    if (task.archived_at) return "Archiv";
-    return ({ offen: "Offen", laeuft: "Läuft", erledigt: "Erledigt" } as Record<string, string>)[task.status] ?? task.status;
+    if (task.deleted_at) return t("common.trash");
+    if (task.archived_at) return t("common.archive");
+    return ({ offen: t("task.status.open"), laeuft: t("task.status.in_progress"), erledigt: t("task.status.done") } as Record<string, string>)[task.status] ?? task.status;
   };
   const taskBucket = (task: Task): Exclude<ProjectTaskFilter, "all"> => task.deleted_at ? "trash" : task.archived_at ? "archived" : "active";
 
@@ -158,7 +160,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
   };
 
   const trash = async () => {
-    if (!selected || !window.confirm("Projekt in den Papierkorb verschieben? Archivieren und Papierkorb sind getrennt.")) return;
+    if (!selected || !window.confirm(t("project.confirm_trash"))) return;
     setBusy(true); setError(null);
     try { await api.trashProject(selected.id); setSelected(null); await load(); }
     catch (e) { setError((e as Error).message); }
@@ -169,7 +171,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
     event.preventDefault();
     if (!selected || !projectChatQuestion.trim()) return;
     if (!projectChatModel) {
-      setError("Für Projektfragen muss ein installiertes KI-Modell ausgewählt sein.");
+      setError(t("project.chat_needs_model"));
       return;
     }
     const question = projectChatQuestion.trim();
@@ -193,7 +195,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
   };
 
   const deleteProjectChatMessage = (index: number) => {
-    if (!window.confirm("Diesen Chat löschen?")) return;
+    if (!window.confirm(t("project.confirm_delete_chat"))) return;
     setProjectChatMessages((current) => current.filter((_, messageIndex) => messageIndex !== index));
   };
 
@@ -218,7 +220,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
   };
 
   const trashFile = async (fileId: string, fileName: string) => {
-    if (!selected || !window.confirm(`„${fileName}“ in den Papierkorb verschieben?`)) return;
+    if (!selected || !window.confirm(t("project.confirm_trash_file", { name: fileName }))) return;
     setFileBusy(true); setError(null);
     try { await api.trashProjectFile(fileId); await open(selected.id); }
     catch (e) { setError((e as Error).message); }
@@ -227,76 +229,76 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
 
   return (
     <div className="panel">
-      <h1>Projekte</h1>
+      <h1>{t("projects.title")}</h1>
       {error && <Note kind="error">{error}</Note>}
       <div className="card">
-        <h2>Neues Projekt</h2>
+        <h2>{t("project.new")}</h2>
         <div className="row wrap">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Prüfung Kunde A" />
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Beschreibung (optional)" />
-          <button className="btn primary" onClick={() => void create()} disabled={busy || !name.trim()}>Anlegen</button>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("project.name_placeholder")} />
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("project.description_placeholder")} />
+          <button className="btn primary" onClick={() => void create()} disabled={busy || !name.trim()}>{t("common.create")}</button>
         </div>
       </div>
       <div className="row wrap project-list-tools">
-        <label className="check"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Archivierte Projekte anzeigen</label>
+        <label className="check"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> {t("project.show_archived")}</label>
       </div>
       <div className="project-list">
-        {projects.length === 0 && !error && <Note>Keine Projekte vorhanden.</Note>}
+        {projects.length === 0 && !error && <Note>{t("project.empty")}</Note>}
         {projects.map((project) => (
           <div className="project-card" key={project.id}>
             <button className="project-item" onClick={() => selected?.id === project.id ? setSelected(null) : void open(project.id)} aria-expanded={selected?.id === project.id}>
-              <span><strong>{project.name}</strong><span className="project-desc">{project.description || "Keine Beschreibung"}</span></span>
-              <span className="project-card-meta"><span className="dim">{project.meetings} Meetings · {project.files} Dateien</span><span className="project-open">{selected?.id === project.id ? "Geöffnet" : "Öffnen"} <span aria-hidden="true">↗</span></span></span>
+              <span><strong>{project.name}</strong><span className="project-desc">{project.description || t("project.no_description")}</span></span>
+              <span className="project-card-meta"><span className="dim">{t("project.meetings_files", { meetings: project.meetings, files: project.files })}</span><span className="project-open">{selected?.id === project.id ? t("project.opened") : t("project.open")} <span aria-hidden="true">↗</span></span></span>
             </button>
             {selected?.id === project.id && (
               <div className="project-workspace">
                 <div className="project-workspace-head">
                   <div>
                     <div className="detail-meta">
-                      <span className="chip">{selected.status === "archived" ? "Archiviert" : "Aktiv"}</span>
-                      <span>{selected.meetings.length} Meetings</span>
-                      <span>{selected.files.length} Dateien</span>
+                      <span className="chip">{selected.status === "archived" ? t("project.archived") : t("common.active")}</span>
+                      <span>{t("project.meetings_count", { n: selected.meetings.length })}</span>
+                      <span>{t("project.files_count", { n: selected.files.length })}</span>
                     </div>
                   </div>
-                  <button className="btn small" onClick={() => setSelected(null)}>Zuklappen</button>
+                  <button className="btn small" onClick={() => setSelected(null)}>{t("project.collapse")}</button>
                 </div>
-                <nav className="project-tabs" aria-label="Projektbereiche">
-                  <button className={projectView === "overview" ? "tab active" : "tab"} onClick={() => setProjectView("overview")}>Übersicht</button>
-                  <button className={projectView === "chat" ? "tab active" : "tab"} onClick={() => setProjectView("chat")}>KI fragen</button>
-                  <button className={projectView === "meetings" ? "tab active" : "tab"} onClick={() => setProjectView("meetings")}>Meetings <span className="count">{selected.meetings.length}</span></button>
-                  <button className={projectView === "tasks" ? "tab active" : "tab"} onClick={() => setProjectView("tasks")}>Aufgaben <span className="count">{projectTasks.length}</span></button>
-                  <button className={projectView === "files" ? "tab active" : "tab"} onClick={() => setProjectView("files")}>Dateien <span className="count">{selected.files.length}</span></button>
+                <nav className="project-tabs" aria-label={t("project.tabs_aria")}>
+                  <button className={projectView === "overview" ? "tab active" : "tab"} onClick={() => setProjectView("overview")}>{t("project.tab_overview")}</button>
+                  <button className={projectView === "chat" ? "tab active" : "tab"} onClick={() => setProjectView("chat")}>{t("project.tab_chat")}</button>
+                  <button className={projectView === "meetings" ? "tab active" : "tab"} onClick={() => setProjectView("meetings")}>{t("project.tab_meetings")} <span className="count">{selected.meetings.length}</span></button>
+                  <button className={projectView === "tasks" ? "tab active" : "tab"} onClick={() => setProjectView("tasks")}>{t("project.tab_tasks")} <span className="count">{projectTasks.length}</span></button>
+                  <button className={projectView === "files" ? "tab active" : "tab"} onClick={() => setProjectView("files")}>{t("project.tab_files")} <span className="count">{selected.files.length}</span></button>
                 </nav>
                 {projectView === "overview" && <div className="card project-section">
                   <div className="settings-grid">
-                    <label className="field"><span>Name</span><input value={editName} onChange={(e) => setEditName(e.target.value)} /></label>
-                    <label className="field"><span>Beschreibung</span><input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} /></label>
+                    <label className="field"><span>{t("common.name")}</span><input value={editName} onChange={(e) => setEditName(e.target.value)} /></label>
+                    <label className="field"><span>{t("project.description")}</span><input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} /></label>
                   </div>
                   <div className="row wrap">
-                    <button className="btn primary" onClick={() => void save()} disabled={busy || !editName.trim()}>Speichern</button>
-                    <button className="btn" onClick={() => void archive()} disabled={busy}>{selected.status === "archived" ? "Wieder aktivieren" : "Archivieren"}</button>
-                    <button className="btn danger" onClick={() => void trash()} disabled={busy}>Papierkorb</button>
-                    <span className="dim">{selected.status === "archived" ? "Archiviert" : "Aktiv"}</span>
+                    <button className="btn primary" onClick={() => void save()} disabled={busy || !editName.trim()}>{t("common.save_short")}</button>
+                    <button className="btn" onClick={() => void archive()} disabled={busy}>{selected.status === "archived" ? t("project.reactivate") : t("common.archive_verb")}</button>
+                    <button className="btn danger" onClick={() => void trash()} disabled={busy}>{t("common.trash")}</button>
+                    <span className="dim">{selected.status === "archived" ? t("project.archived") : t("common.active")}</span>
                   </div>
                 </div>}
                 {projectView === "chat" && <div className="card project-section project-chat-card">
                   {projectChatMessages.length > 0 && <div className="project-chat-history">
-                    <div className="row spread chat-history-head"><strong>Gesprächsverlauf</strong><button className="btn small" type="button" onClick={() => { if (window.confirm("Gesprächsverlauf dieses Projekts löschen?")) setProjectChatMessages([]); }}>Verlauf löschen</button></div>
+                    <div className="row spread chat-history-head"><strong>{t("chat.history")}</strong><button className="btn small" type="button" onClick={() => { if (window.confirm(t("project.confirm_clear_chat"))) setProjectChatMessages([]); }}>{t("chat.clear_history")}</button></div>
                     {projectChatMessages.map((message, index) => <details className="project-chat-turn chat-turn-collapsible" key={`${selected.id}-${index}`}>
-                      <summary className="chat-question"><strong>Du</strong><span>{message.question}</span></summary>
-                      <div className="chat-turn-actions"><button className="btn small danger" type="button" onClick={() => deleteProjectChatMessage(index)}>Chat löschen</button></div>
-                      <div className="rag"><div className={"note " + (message.answer.grounded ? "ok" : "warn")}>{message.answer.grounded ? "Mit Quellen aus diesem Projekt" : "Keine ausreichende Information in den Projektinhalten gefunden."}</div><p className="rag-answer">{message.answer.answer}</p>{message.answer.sources.length > 0 && <div className="project-chat-sources"><span className="dim">Quellen</span>{message.answer.sources.slice(0, 5).map((source) => source.meeting_id ? <button className="link" key={`${source.meeting_id}-${source.segment_id}`} onClick={() => onOpenMeeting(source.meeting_id!, source.segment_id)}>{source.meeting_title ?? "Meeting"} · {source.timestamp}</button> : source.file_id ? <a className="link" key={`${source.file_id}-${source.segment_id}`} href={api.projectFileUrl(source.file_id)} download={source.file_name ?? undefined}>{source.file_name ?? "Datei"}{source.locator ? ` · ${source.locator}` : ""} öffnen →</a> : null)}</div>}</div>
+                      <summary className="chat-question"><strong>{t("chat.you")}</strong><span>{message.question}</span></summary>
+                      <div className="chat-turn-actions"><button className="btn small danger" type="button" onClick={() => deleteProjectChatMessage(index)}>{t("chat.delete")}</button></div>
+                      <div className="rag"><div className={"note " + (message.answer.grounded ? "ok" : "warn")}>{message.answer.grounded ? t("project.chat_grounded") : t("project.chat_no_info")}</div><p className="rag-answer">{message.answer.answer}</p>{message.answer.sources.length > 0 && <div className="project-chat-sources"><span className="dim">{t("chat.sources")}</span>{message.answer.sources.slice(0, 5).map((source) => source.meeting_id ? <button className="link" key={`${source.meeting_id}-${source.segment_id}`} onClick={() => onOpenMeeting(source.meeting_id!, source.segment_id)}>{source.meeting_title ?? t("common.meeting")} · {source.timestamp}</button> : source.file_id ? <a className="link" key={`${source.file_id}-${source.segment_id}`} href={api.projectFileUrl(source.file_id)} download={source.file_name ?? undefined}>{source.file_name ?? t("project.file_word")}{source.locator ? ` · ${source.locator}` : ""}{t("project.open_link")}</a> : null)}</div>}</div>
                     </details>)}
                   </div>}
                   <form className="project-chat-form" onSubmit={(event) => void askProject(event)}>
-                    <input className="grow" value={projectChatQuestion} onChange={(event) => setProjectChatQuestion(event.target.value)} placeholder="Frage zu diesem Projekt stellen…" aria-label="Frage zu diesem Projekt" />
-                    {projectModels.length > 0 && <label className="inline-select"><span>Modell</span><select value={projectChatModel} onChange={(event) => setProjectChatModel(event.target.value)} aria-label="KI-Modell">{projectModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>}
-                    <button className="btn primary" type="submit" disabled={projectChatBusy || !projectChatQuestion.trim() || !projectChatModel}>{projectChatBusy ? "Beantworte…" : "Fragen"}</button>
+                    <input className="grow" value={projectChatQuestion} onChange={(event) => setProjectChatQuestion(event.target.value)} placeholder={t("project.chat_placeholder")} aria-label={t("project.chat_aria")} />
+                    {projectModels.length > 0 && <label className="inline-select"><span>{t("common.model")}</span><select value={projectChatModel} onChange={(event) => setProjectChatModel(event.target.value)} aria-label={t("project.model_aria")}>{projectModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>}
+                    <button className="btn primary" type="submit" disabled={projectChatBusy || !projectChatQuestion.trim() || !projectChatModel}>{projectChatBusy ? t("project.chat_answering") : t("chat.ask")}</button>
                   </form>
-                  {!projectModels.length && <p className="hint">Kein installiertes KI-Modell verfügbar.</p>}
+                  {!projectModels.length && <p className="hint">{t("project.no_model")}</p>}
                 </div>}
                 {projectView === "meetings" && <div className="card project-section">
-                  {selected.meetings.length === 0 && <p className="dim">Keine Meetings.</p>}
+                  {selected.meetings.length === 0 && <p className="dim">{t("project.no_meetings")}</p>}
                   {selected.meetings.map((meeting) => (
                     <button className="project-meeting" key={meeting.id} onClick={() => onOpenMeeting(meeting.id)}>
                       <strong>{meeting.title}</strong><span className="dim">{meeting.start_at ? fmtDate(meeting.start_at) : "–"}</span>
@@ -304,23 +306,23 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
                   ))}
                 </div>}
                 {projectView === "tasks" && <div className="card project-section">
-                  <div className="project-task-filters" aria-label="Projektaufgaben filtern">
-                    {(["all", "active", "archived", "trash"] as const).map((filter) => <button type="button" key={filter} className={projectTaskFilter === filter ? "chip active" : "chip"} onClick={() => setProjectTaskFilter(filter)} aria-pressed={projectTaskFilter === filter}>{filter === "all" ? "Alle" : filter === "active" ? "Aktiv" : filter === "archived" ? "Archiv" : "Papierkorb"} <span className="count">{projectTaskCounts[filter]}</span></button>)}
+                  <div className="project-task-filters" aria-label={t("project.tasks_filter_aria")}>
+                    {(["all", "active", "archived", "trash"] as const).map((filter) => <button type="button" key={filter} className={projectTaskFilter === filter ? "chip active" : "chip"} onClick={() => setProjectTaskFilter(filter)} aria-pressed={projectTaskFilter === filter}>{filter === "all" ? t("common.all") : filter === "active" ? t("common.active") : filter === "archived" ? t("common.archive") : t("common.trash")} <span className="count">{projectTaskCounts[filter]}</span></button>)}
                   </div>
-                  {projectTasks.length === 0 ? <p className="dim">Keine Aufgaben in diesem Projekt.</p> : visibleProjectTasks.length === 0 ? <p className="dim">Keine Aufgaben in diesem Bereich.</p> : <div className="project-task-list">
+                  {projectTasks.length === 0 ? <p className="dim">{t("project.no_tasks")}</p> : visibleProjectTasks.length === 0 ? <p className="dim">{t("project.no_tasks_area")}</p> : <div className="project-task-list">
                     {visibleProjectTasks.map((task) => <div className="project-task" key={task.id}>
-                      <div className="project-task-main"><strong>{task.text}</strong><div className="task-sub">{task.meeting_id && task.meeting_title ? <button type="button" className="task-link" onClick={() => onOpenMeeting(task.meeting_id!)}>{task.meeting_title}</button> : <span className="dim">Ohne Meeting</span>}{task.owner ? <span className="dim">{task.owner}</span> : null}{task.deadline && task.deadline !== "nicht angegeben" ? <span className="dim">Frist: {task.deadline}</span> : null}</div></div>
+                      <div className="project-task-main"><strong>{task.text}</strong><div className="task-sub">{task.meeting_id && task.meeting_title ? <button type="button" className="task-link" onClick={() => onOpenMeeting(task.meeting_id!)}>{task.meeting_title}</button> : <span className="dim">{t("project.no_meeting")}</span>}{task.owner ? <span className="dim">{task.owner}</span> : null}{task.deadline && task.deadline !== "nicht angegeben" ? <span className="dim">{t("project.deadline_label", { deadline: task.deadline })}</span> : null}</div></div>
                       <span className={task.deleted_at ? "badge failed" : task.archived_at ? "badge warn" : task.status === "erledigt" ? "badge done" : "badge"}>{taskStatusLabel(task)}</span>
                     </div>)}
                   </div>}
                 </div>}
                 {projectView === "files" && <div className="card project-section">
                   <div className="row wrap project-file-tools">
-                    <label className="btn upload-button">{fileBusy ? "Bereite Datei vor…" : "Datei hinzufügen"}<input type="file" hidden accept=".pdf,.docx,.odt,.xlsx,.pptx,.txt,.md,.csv" disabled={fileBusy} onChange={(event) => { void uploadProjectFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
-                    <button className="btn" onClick={() => void reindexFiles()} disabled={fileBusy || selected.files.length === 0}>Neu vorbereiten</button>
+                    <label className="btn upload-button">{fileBusy ? t("project.file_preparing_btn") : t("project.file_add")}<input type="file" hidden accept=".pdf,.docx,.odt,.xlsx,.pptx,.txt,.md,.csv" disabled={fileBusy} onChange={(event) => { void uploadProjectFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
+                    <button className="btn" onClick={() => void reindexFiles()} disabled={fileBusy || selected.files.length === 0}>{t("project.file_reindex")}</button>
                   </div>
-                  {selected.files.length === 0 && <p className="dim">Keine Dateien.</p>}
-                  {selected.files.map((file) => <div className="project-file" key={file.id}><span><strong>{file.name}</strong><span className="dim">{file.kind} · {file.size} Bytes</span></span><span className={file.extraction_status === "ready" || file.kind !== "document" ? "model-ready" : file.extraction_status === "failed" ? "model-missing" : "dim"}>{fileStatusLabel(file)}</span><span className="row"><a className="btn small" href={api.projectFileUrl(file.id)} download={file.name}>Herunterladen</a><button className="btn small danger" disabled={fileBusy} onClick={() => void trashFile(file.id, file.name)}>Papierkorb</button></span></div>)}
+                  {selected.files.length === 0 && <p className="dim">{t("project.no_files")}</p>}
+                  {selected.files.map((file) => <div className="project-file" key={file.id}><span><strong>{file.name}</strong><span className="dim">{file.kind} · {file.size} Bytes</span></span><span className={file.extraction_status === "ready" || file.kind !== "document" ? "model-ready" : file.extraction_status === "failed" ? "model-missing" : "dim"}>{fileStatusLabel(file)}</span><span className="row"><a className="btn small" href={api.projectFileUrl(file.id)} download={file.name}>{t("common.download")}</a><button className="btn small danger" disabled={fileBusy} onClick={() => void trashFile(file.id, file.name)}>{t("common.trash")}</button></span></div>)}
                 </div>}
               </div>
             )}

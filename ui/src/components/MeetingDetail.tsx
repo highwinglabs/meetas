@@ -5,6 +5,7 @@ import type {
 } from "../types";
 import { fmtDate, fmtHMS } from "../format";
 import { Badge, Note, Spinner } from "./ui";
+import { useI18n } from "../i18n";
 import AnalysisView from "./AnalysisView";
 import AudioWaveform from "./AudioWaveform";
 import AudioProfileSliders, { type NoiseProfileMode } from "./AudioProfileSliders";
@@ -37,6 +38,7 @@ export default function MeetingDetail({
   segmentId?: string | null;
   onBack: () => void;
 }) {
+  const { t } = useI18n();
   const [detail, setDetail] = useState<MDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"transcribe" | "analyze" | "diarize" | null>(null);
@@ -410,7 +412,7 @@ export default function MeetingDetail({
     try {
       const selectedModel = transcriptModel;
       if (!selectedModel) {
-        setError("Für die Transkription muss ein installiertes Modell ausgewählt sein.");
+        setError(t("detail.err_transcribe_model"));
         return;
       }
       await api.startTranscription(id, null, selectedModel);
@@ -430,7 +432,7 @@ export default function MeetingDetail({
     analysisStoppedRef.current = false;
     try {
       if (!analysisModel) {
-        setError("Für die KI-Auswertung muss ein installiertes Modell ausgewählt sein.");
+        setError(t("detail.err_analysis_model"));
         return;
       }
       await api.analyze(id, "summary", null, analysisModel, analysisTemplate);
@@ -466,7 +468,7 @@ export default function MeetingDetail({
     setError(null);
     try {
       const r = await api.diarize(id);
-      setDiarNote(`${r.speakers} Sprecher über ${r.segments} Segmente erkannt.`);
+      setDiarNote(t("detail.diarized", { speakers: r.speakers, segments: r.segments }));
       load();
       loadExtras();
       loadStatuses();
@@ -481,7 +483,7 @@ export default function MeetingDetail({
     const question = chatQuestion.trim();
     if (!question) return;
     if (!analysisModel) {
-      setError("Für Fragen muss ein installiertes KI-Modell ausgewählt sein.");
+      setError(t("detail.err_chat_model"));
       return;
     }
     setChatBusy(true);
@@ -507,7 +509,7 @@ export default function MeetingDetail({
   };
 
   const deleteChatMessage = (index: number) => {
-    if (!window.confirm("Diesen Chat löschen?")) return;
+    if (!window.confirm(t("detail.confirm_delete_chat"))) return;
     setChatMessages((current) => current.filter((_, messageIndex) => messageIndex !== index));
   };
 
@@ -518,7 +520,7 @@ export default function MeetingDetail({
     try {
       await api.extractTasks(id);
       await loadExtras();
-      setAutoNote("Aufgaben (neu) extrahiert – siehe Registerkarte „Aufgaben“.");
+      setAutoNote(t("detail.tasks_extracted"));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -556,8 +558,8 @@ export default function MeetingDetail({
 
   const lifecycleMeetingTask = async (action: "archive" | "trash", task: Task) => {
     const message = action === "archive"
-      ? "Aufgabe archivieren? Sie bleibt im Aufgabenbereich wiederherstellbar."
-      : "Aufgabe in den Papierkorb verschieben? Sie kann wiederhergestellt werden.";
+      ? t("detail.confirm_archive_task")
+      : t("detail.confirm_trash_task");
     if (!window.confirm(message)) return;
     setError(null);
     try {
@@ -614,7 +616,7 @@ export default function MeetingDetail({
   const addMarkerAt = async (at_s: number) => {
     const txt = markerText.trim();
     if (!txt) {
-      setError("Der Marker-Text darf nicht leer sein.");
+      setError(t("detail.marker_not_empty"));
       return;
     }
     setError(null);
@@ -641,7 +643,7 @@ export default function MeetingDetail({
   const doRename = async (current: string) => {
     const nn = renameNew.trim();
     if (!nn) {
-      setError("Der neue Sprecher-Name darf nicht leer sein.");
+      setError(t("detail.rename_not_empty"));
       return;
     }
     setError(null);
@@ -685,7 +687,7 @@ export default function MeetingDetail({
       await api.autoTitleTags(id);
       load();
       loadExtras();
-      setAutoNote("Titel und Tags wurden aus der Analyse abgeleitet.");
+      setAutoNote(t("detail.auto_tags_done"));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -707,7 +709,7 @@ export default function MeetingDetail({
   if (error && !detail) {
     return (
       <div className="panel">
-        <button className="btn" onClick={onBack}>← Meetings</button>
+        <button className="btn" onClick={onBack}>{t("common.back_meetings")}</button>
         <Note kind="error">{error}</Note>
       </div>
     );
@@ -715,8 +717,8 @@ export default function MeetingDetail({
   if (!detail) {
     return (
       <div className="panel">
-        <button className="btn" onClick={onBack}>← Meetings</button>
-        <Spinner label="Wird geladen…" />
+        <button className="btn" onClick={onBack}>{t("common.back_meetings")}</button>
+        <Spinner label={t("common.loading")} />
       </div>
     );
   }
@@ -753,7 +755,7 @@ export default function MeetingDetail({
   return (
     <div className="panel">
       <div className="head-row">
-        <button className="btn" onClick={onBack}>← Meetings</button>
+        <button className="btn" onClick={onBack}>{t("common.back_meetings")}</button>
         <div className="grow">
           <h1 className="detail-title">{detail.title}</h1>
           <div className="detail-meta">
@@ -766,66 +768,66 @@ export default function MeetingDetail({
       </div>
 
       {error && <Note kind="error">{error}</Note>}
-      <nav className="detail-tabs" aria-label="Meeting-Bereiche">
-        {([["transcript", "Transkript"], ["ai", "KI"], ["tasks", "Aufgaben"]] as const).map(([key, label]) => (
-          <button key={key} className={viewTab === key ? "tab active" : "tab"} onClick={() => setViewTab(key)}>{label}</button>
+      <nav className="detail-tabs" aria-label={t("detail.meeting_areas")}>
+        {([["transcript", "detail.tab_transcript"], ["ai", "detail.tab_ai"], ["tasks", "detail.tab_tasks"]] as const).map(([key, msgKey]) => (
+          <button key={key} className={viewTab === key ? "tab active" : "tab"} onClick={() => setViewTab(key)}>{t(msgKey)}</button>
         ))}
         <details className="detail-more" open={viewTab === "speakers" || viewTab === "markers" || viewTab === "details"}>
-          <summary className={viewTab === "speakers" || viewTab === "markers" || viewTab === "details" ? "tab active" : "tab"}>Mehr</summary>
+          <summary className={viewTab === "speakers" || viewTab === "markers" || viewTab === "details" ? "tab active" : "tab"}>{t("detail.tab_more")}</summary>
           <div className="detail-more-menu">
-            <button className={viewTab === "speakers" ? "tab active" : "tab"} onClick={() => setViewTab("speakers")}>Sprecher</button>
-            <button className={viewTab === "markers" ? "tab active" : "tab"} onClick={() => setViewTab("markers")}>Marker</button>
-            <button className={viewTab === "details" ? "tab active" : "tab"} onClick={() => setViewTab("details")}>Details</button>
+            <button className={viewTab === "speakers" ? "tab active" : "tab"} onClick={() => setViewTab("speakers")}>{t("detail.tab_speakers")}</button>
+            <button className={viewTab === "markers" ? "tab active" : "tab"} onClick={() => setViewTab("markers")}>{t("detail.tab_markers")}</button>
+            <button className={viewTab === "details" ? "tab active" : "tab"} onClick={() => setViewTab("details")}>{t("detail.tab_details")}</button>
           </div>
         </details>
       </nav>
-      {(analyzing || diarizing) && <Spinner label={analyzing ? "Erstelle KI-Auswertung…" : "Erkenne Sprecher…"} />}
+      {(analyzing || diarizing) && <Spinner label={analyzing ? t("detail.analyzing") : t("detail.diarizing")} />}
       {viewTab === "transcript" && <>
       {failedJobs.map((j) => (
-        <Note key={`${j.stage}-${j.error ?? "error"}`} kind="error">{j.stage}: {j.error ?? "Fehler"}</Note>
+        <Note key={`${j.stage}-${j.error ?? "error"}`} kind="error">{j.stage}: {j.error ?? t("detail.error")}</Note>
       ))}
       <div className="card actions">
         <div className="row wrap">
           <button className="btn primary" onClick={transcribe} disabled={busy !== null || transcribing || asrReady === false}>
-            {transcribing ? "Transkript läuft…" : transcribeFailed ? "Transkription erneut versuchen" : "Vollständiges Transkript erstellen"}
+            {transcribing ? t("detail.transcribe_running") : transcribeFailed ? t("detail.retry_transcribe") : t("detail.create_transcript")}
           </button>
-          {transcriptModels.length > 0 && <label className="inline-select"><span>Modell</span><select value={transcriptModel} onChange={(e) => setTranscriptModel(e.target.value)} disabled={transcribing || busy !== null}>{transcriptModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
+          {transcriptModels.length > 0 && <label className="inline-select"><span>{t("common.model")}</span><select value={transcriptModel} onChange={(e) => setTranscriptModel(e.target.value)} disabled={transcribing || busy !== null}>{transcriptModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
           <span className="vsep" />
           <div className="export-menu">
-            <button className="btn" type="button" onClick={() => setExportOpen((open) => !open)} disabled={!hasSegs} aria-expanded={exportOpen} aria-haspopup="menu">Exportieren ▾</button>
+            <button className="btn" type="button" onClick={() => setExportOpen((open) => !open)} disabled={!hasSegs} aria-expanded={exportOpen} aria-haspopup="menu">{t("detail.export")}</button>
             {exportOpen && <div className="export-options" role="menu">
-              <button type="button" role="menuitem" onClick={() => chooseExport("markdown")}>Markdown (.md)</button>
-              <button type="button" role="menuitem" onClick={() => chooseExport("txt")}>Text (.txt)</button>
-              <button type="button" role="menuitem" onClick={() => chooseExport("json")}>JSON (.json)</button>
+              <button type="button" role="menuitem" onClick={() => chooseExport("markdown")}>{t("detail.export_md")}</button>
+              <button type="button" role="menuitem" onClick={() => chooseExport("txt")}>{t("detail.export_txt")}</button>
+              <button type="button" role="menuitem" onClick={() => chooseExport("json")}>{t("detail.export_json")}</button>
             </div>}
           </div>
         </div>
-        {!transcriptModels.length && <span className="dim">Kein installiertes Transkriptionsmodell verfügbar.</span>}
+        {!transcriptModels.length && <span className="dim">{t("detail.no_transcribe_model")}</span>}
       </div>
       {detail.recording?.original_path && (
         <div className="card audio-player">
           <div className="audio-toolbar">
             <div className="audio-heading">
-              <h2>Audio verbessern</h2>
-              {audioEnhancement?.status === "processing" && <span className="audio-status">Wird optimiert …</span>}
-              {audioEnhancement?.status === "failed" && <span className="audio-status error">Optimierung fehlgeschlagen: {audioEnhancement.error ?? "Unbekannter Fehler"}</span>}
-              {!audioEditorOpen && audioEnhancement?.status === "ready" && audioEnhancement.current === true && <span className="audio-status current">Profil angewendet</span>}
+              <h2>{t("detail.improve_audio")}</h2>
+              {audioEnhancement?.status === "processing" && <span className="audio-status">{t("detail.optimizing")}</span>}
+              {audioEnhancement?.status === "failed" && <span className="audio-status error">{t("detail.optimize_failed", { error: audioEnhancement.error ?? t("detail.unknown_error") })}</span>}
+              {!audioEditorOpen && audioEnhancement?.status === "ready" && audioEnhancement.current === true && <span className="audio-status current">{t("detail.profile_applied")}</span>}
             </div>
             <div className="audio-actions">
-              <div className="segmented" role="group" aria-label="Audio-Version">
-                <button type="button" disabled={audioEnhancement?.status !== "ready"} className={audioVariant === "enhanced" ? "active" : ""} onClick={() => switchAudioVariant("enhanced")}>Optimiert</button>
-                <button type="button" className={audioVariant === "original" ? "active" : ""} onClick={() => switchAudioVariant("original")}>Original</button>
+              <div className="segmented" role="group" aria-label={t("detail.audio_version")}>
+                <button type="button" disabled={audioEnhancement?.status !== "ready"} className={audioVariant === "enhanced" ? "active" : ""} onClick={() => switchAudioVariant("enhanced")}>{t("audio.enhanced")}</button>
+                <button type="button" className={audioVariant === "original" ? "active" : ""} onClick={() => switchAudioVariant("original")}>{t("audio.original")}</button>
               </div>
             </div>
           </div>
           <audio ref={audioRef} controls preload="metadata" onLoadedMetadata={restoreAudioPosition} src={audioSource} />
           <button type="button" className="audio-editor-toggle" onClick={() => setAudioEditorOpen((open) => !open)}>
-            {audioEditorOpen ? "Anpassung schließen" : "Audio anpassen"}
+            {audioEditorOpen ? t("detail.close_editor") : t("detail.adjust_audio")}
           </button>
           {audioEditorOpen && <div className="audio-editor">
             {previewUrl && <div className="audio-preview">
-              <span>Vorschau</span>
-              <audio controls preload="metadata" src={previewUrl} aria-label="Optimierte Audiovorschau" />
+              <span>{t("common.preview")}</span>
+              <audio controls preload="metadata" src={previewUrl} aria-label={t("detail.preview_aria")} />
             </div>}
             {waveform.length > 0 && <AudioWaveform
               peaks={waveform}
@@ -875,13 +877,13 @@ export default function MeetingDetail({
                 await load();
               } catch (e) { audioEnhancementPending.current = false; setError((e as Error).message); }
               finally { setAudioBusy(false); }
-            }}>{audioBusy ? "Aufnahme wird optimiert …" : "Aufnahme mit diesen Werten optimieren"}</button>
+            }}>{audioBusy ? t("detail.enhancing") : t("detail.enhance")}</button>
           </div>}
         </div>
       )}
       {transcribing && <div className="card job-progress" aria-live="polite">
-        <div className="row spread"><strong>Transkription läuft</strong><span className="dim">{transcribeProgress != null && transcribeProgress > 0 ? `${transcribeProgress} %` : "Fortschritt wird ermittelt…"}</span></div>
-        <div className="progress-track" role="progressbar" aria-label="Transkriptionsfortschritt" aria-valuemin={0} aria-valuemax={100} aria-valuenow={transcribeProgress ?? 0}><div className="progress-fill" style={{ width: `${transcribeProgress ?? 3}%` }} /></div>
+        <div className="row spread"><strong>{t("detail.transcription_running")}</strong><span className="dim">{transcribeProgress != null && transcribeProgress > 0 ? `${transcribeProgress} %` : t("detail.computing_progress")}</span></div>
+        <div className="progress-track" role="progressbar" aria-label={t("detail.transcribe_progress_aria")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={transcribeProgress ?? 0}><div className="progress-fill" style={{ width: `${transcribeProgress ?? 3}%` }} /></div>
       </div>}
 <TranscriptTab
         segments={detail.segments}
@@ -914,14 +916,14 @@ export default function MeetingDetail({
 
       {viewTab === "ai" && <>
           <div className="card ai-model-card">
-            {analysisModels.length > 0 && <label className="inline-select"><span>KI-Modell</span><select value={analysisModel} onChange={(e) => setAnalysisModel(e.target.value)}>{analysisModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
-            {!analysisModels.length && <span className="hint">Kein installiertes KI-Modell verfügbar.</span>}
+            {analysisModels.length > 0 && <label className="inline-select"><span>{t("common.ai_model")}</span><select value={analysisModel} onChange={(e) => setAnalysisModel(e.target.value)}>{analysisModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
+            {!analysisModels.length && <span className="hint">{t("detail.no_ai_model")}</span>}
           </div>
           <div className="card actions ai-summary-action">
             <div className="row wrap">
-              <button className="btn primary" onClick={analyze} disabled={busy !== null || analyzing || !hasSegs || !analysisModel}>{analyzing ? "Analysiere…" : analysis ? "Zusammenfassung aktualisieren" : "Zusammenfassung erstellen"}</button>
-              {analyzing && <button className="btn danger" onClick={cancelAnalysis} disabled={cancelingAnalysis}>{cancelingAnalysis ? "Stopp…" : "■ Stoppen"}</button>}
-              <label className="inline-select"><span>Vorlage</span><select value={analysisTemplate} onChange={(e) => setAnalysisTemplate(e.target.value)}><option value="standard">Standard</option><option value="compact">Kurz und kompakt</option><option value="audit">Risiken und Nachweise</option><option value="action_items">Aufgaben und Fristen</option></select></label>
+              <button className="btn primary" onClick={analyze} disabled={busy !== null || analyzing || !hasSegs || !analysisModel}>{analyzing ? t("detail.analyzing_btn") : analysis ? t("detail.update_summary") : t("detail.create_summary")}</button>
+              {analyzing && <button className="btn danger" onClick={cancelAnalysis} disabled={cancelingAnalysis}>{cancelingAnalysis ? t("detail.stopping") : t("detail.stop_btn")}</button>}
+              <label className="inline-select"><span>{t("detail.template")}</span><select value={analysisTemplate} onChange={(e) => setAnalysisTemplate(e.target.value)}><option value="standard">{t("detail.tpl_standard")}</option><option value="compact">{t("detail.tpl_compact")}</option><option value="audit">{t("detail.tpl_audit")}</option><option value="action_items">{t("detail.tpl_actions")}</option></select></label>
             </div>
           </div>
 <ChatPanel
@@ -936,15 +938,15 @@ export default function MeetingDetail({
           onJumpToSegment={jumpToSegment}
         />
       <section className="block ai-result ai-collapsible">
-        <button type="button" className="ai-result-head" onClick={() => setAnalysisOpen((open) => !open)} aria-expanded={analysisOpen} aria-label={analysisOpen ? "KI-Zusammenfassung einklappen" : "KI-Zusammenfassung aufklappen"}>
-          <h2>KI-Zusammenfassung</h2>
+        <button type="button" className="ai-result-head" onClick={() => setAnalysisOpen((open) => !open)} aria-expanded={analysisOpen} aria-label={analysisOpen ? t("detail.collapse_summary") : t("detail.expand_summary")}>
+          <h2>{t("detail.summary")}</h2>
           <span className={`transcript-toggle-icon${analysisOpen ? " open" : ""}`} aria-hidden="true">⌄</span>
         </button>
         {analysisOpen && <div className="ai-result-body">
           {analysis ? (
             <AnalysisView content={analysis.content} markdown={analysis.markdown} model={analysis.model} outputLanguage={analysis.output_lang ?? null} />
           ) : (
-            <Note>{!hasSegs ? "Transkript erforderlich." : "Noch keine Zusammenfassung."}</Note>
+            <Note>{!hasSegs ? t("detail.transcript_required") : t("detail.no_summary")}</Note>
           )}
         </div>}
       </section>

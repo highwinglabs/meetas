@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { fmtHMS } from "../format";
+import { useI18n } from "../i18n";
 
 export type AudioSelectionRange = { start: number; duration: number };
 export type NoiseProfileRange = { start_s: number; end_s: number };
@@ -34,6 +35,7 @@ export default function AudioWaveform({
   variant: "original" | "enhanced";
   previewBusy: boolean;
 }) {
+  const { t } = useI18n();
   const selectionStart = useRef<number | null>(null);
 
   const timeAt = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -79,13 +81,13 @@ export default function AudioWaveform({
   return (
     <div className="audio-editor-waveform">
       <div className="audio-editor-waveform-head">
-        <span>Wellenform</span>
-        <span className="dim">{variant === "enhanced" ? "Optimiert" : "Original"}</span>
+        <span>{t("audio.waveform")}</span>
+        <span className="dim">{variant === "enhanced" ? t("audio.enhanced") : t("audio.original")}</span>
       </div>
       <div
         className="audio-waveform"
         role="slider"
-        aria-label={`${variant === "enhanced" ? "Optimierte" : "Originale"} Wellenform: Bereich auswählen`}
+        aria-label={variant === "enhanced" ? t("audio.aria_waveform_enhanced") : t("audio.aria_waveform_original")}
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         tabIndex={0}
@@ -103,17 +105,17 @@ export default function AudioWaveform({
           return <span key={index} className={[selected ? "selected" : "", noiseSelected ? "noise-profile" : ""].filter(Boolean).join(" ")} style={{ height: `${visualPeak}%` }} />;
         })}
       </div>
-      <div className="audio-waveform-legend" aria-label="Farblegende">
-        <span><i className="audio-legend-preview" /> Vorschau</span>
-        {noiseProfileRange && <span><i className="audio-legend-noise" /> Rauschprofil</span>}
+      <div className="audio-waveform-legend" aria-label={t("audio.color_legend")}>
+        <span><i className="audio-legend-preview" /> {t("common.preview")}</span>
+        {noiseProfileRange && <span><i className="audio-legend-noise" /> {t("audio.noise_profile")}</span>}
       </div>
       <div className="audio-editor-meta">
-        <span className="dim">Auswahl {fmtHMS(selection.start)} – {fmtHMS(Math.min(duration, selection.start + selection.duration))}</span>
-        {previewBusy && <span className="dim">Vorschau wird aktualisiert …</span>}
+        <span className="dim">{t("audio.selection")} {fmtHMS(selection.start)} – {fmtHMS(Math.min(duration, selection.start + selection.duration))}</span>
+        {previewBusy && <span className="dim">{t("audio.updating_preview")}</span>}
       </div>
       <div className="audio-waveform-tools">
-        <label className="audio-zoom"><span>Zoom</span><input type="range" min={1} max={512} step={1} value={zoom} onChange={(e) => onZoomChange(Number(e.target.value))} /><output>{Math.round(zoom)}×</output></label>
-        <label className="audio-view-position"><span>Scrollen</span><input type="range" min={0} max={maxViewStart} step={0.01} value={viewStart} onChange={(e) => onViewStartChange(Number(e.target.value))} disabled={!maxViewStart} aria-label="Wellenform horizontal scrollen" /></label>
+        <label className="audio-zoom"><span>{t("audio.zoom")}</span><input type="range" min={1} max={512} step={1} value={zoom} onChange={(e) => onZoomChange(Number(e.target.value))} /><output>{Math.round(zoom)}×</output></label>
+        <label className="audio-view-position"><span>{t("audio.scroll")}</span><input type="range" min={0} max={maxViewStart} step={0.01} value={viewStart} onChange={(e) => onViewStartChange(Number(e.target.value))} disabled={!maxViewStart} aria-label={t("audio.aria_scroll")} /></label>
       </div>
     </div>
   );

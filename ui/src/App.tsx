@@ -13,6 +13,7 @@ import ProjectsPanel from "./components/ProjectsPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import TrashPanel from "./components/TrashPanel";
 import { Note } from "./components/ui";
+import { useI18n } from "./i18n";
 
 type Tab = "recording" | "meetings" | "projects" | "search" | "tasks" | "models" | "settings" | "backup" | "trash";
 
@@ -40,6 +41,7 @@ function NavIcon({ name }: { name: string }) {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("recording");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSeg, setSelectedSeg] = useState<string | null>(null);
@@ -90,34 +92,34 @@ export default function App() {
   return (
     <div className={`app-shell${sidebarCollapsed ? " collapsed" : ""}`}>
       <aside className="sidebar">
-        <button className="sidebar-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Navigation ein- oder ausklappen">{sidebarCollapsed ? "☰" : "‹"}</button>
+        <button className="sidebar-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={t("nav.toggle")}>{sidebarCollapsed ? "☰" : "‹"}</button>
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">M</span>
-          <span className="brand-name">Meetas</span>
+          <span className="brand-name">{t("app.brand")}</span>
         </div>
-        <nav className="side-nav" aria-label="Hauptnavigation">
-          <button className={tab === "recording" ? "tab active" : "tab"} onClick={() => { setSelectedId(null); setSelectedSeg(null); setTab("recording"); }}><NavIcon name="recording" /><span>Start</span></button>
-          <button className={tab === "meetings" ? "tab active" : "tab"} onClick={goMeetingsList}><NavIcon name="meetings" /><span>Meetings</span></button>
-          <button className={tab === "projects" ? "tab active" : "tab"} onClick={() => setTab("projects")}><NavIcon name="projects" /><span>Projekte</span></button>
-          <button className={tab === "tasks" ? "tab active" : "tab"} onClick={() => setTab("tasks")}><NavIcon name="tasks" /><span>Aufgaben</span></button>
-          <button className={tab === "search" ? "tab active" : "tab"} onClick={() => setTab("search")}><NavIcon name="search" /><span>Suche</span></button>
+        <nav className="side-nav" aria-label={t("nav.primary")}>
+          <button className={tab === "recording" ? "tab active" : "tab"} onClick={() => { setSelectedId(null); setSelectedSeg(null); setTab("recording"); }}><NavIcon name="recording" /><span>{t("nav.recording")}</span></button>
+          <button className={tab === "meetings" ? "tab active" : "tab"} onClick={goMeetingsList}><NavIcon name="meetings" /><span>{t("nav.meetings")}</span></button>
+          <button className={tab === "projects" ? "tab active" : "tab"} onClick={() => setTab("projects")}><NavIcon name="projects" /><span>{t("nav.projects")}</span></button>
+          <button className={tab === "tasks" ? "tab active" : "tab"} onClick={() => setTab("tasks")}><NavIcon name="tasks" /><span>{t("nav.tasks")}</span></button>
+          <button className={tab === "search" ? "tab active" : "tab"} onClick={() => setTab("search")}><NavIcon name="search" /><span>{t("nav.search")}</span></button>
         </nav>
         <details className="nav-admin" open={adminTab}>
-          <summary className={adminTab ? "tab active" : "tab"}><NavIcon name="settings" /><span>Einstellungen</span></summary>
+          <summary className={adminTab ? "tab active" : "tab"}><NavIcon name="settings" /><span>{t("nav.settings")}</span></summary>
           <div className="admin-nav">
-            <button className={tab === "settings" ? "tab active" : "tab"} onClick={() => setTab("settings")}><NavIcon name="general" /><span>Allgemein</span></button>
-            <button className={tab === "models" ? "tab active" : "tab"} onClick={() => setTab("models")}><NavIcon name="models" /><span>Modelle</span></button>
-            <button className={tab === "backup" ? "tab active" : "tab"} onClick={() => setTab("backup")}><NavIcon name="backup" /><span>Sicherung</span></button>
+            <button className={tab === "settings" ? "tab active" : "tab"} onClick={() => setTab("settings")}><NavIcon name="general" /><span>{t("nav.general")}</span></button>
+            <button className={tab === "models" ? "tab active" : "tab"} onClick={() => setTab("models")}><NavIcon name="models" /><span>{t("nav.models")}</span></button>
+            <button className={tab === "backup" ? "tab active" : "tab"} onClick={() => setTab("backup")}><NavIcon name="backup" /><span>{t("nav.backup")}</span></button>
           </div>
         </details>
-        <nav className="side-nav secondary trash-nav" aria-label="Weitere Bereiche">
-          <button className={tab === "trash" ? "tab active" : "tab"} onClick={() => setTab("trash")}><NavIcon name="trash" /><span>Papierkorb</span></button>
+        <nav className="side-nav secondary trash-nav" aria-label={t("nav.secondary")}>
+          <button className={tab === "trash" ? "tab active" : "tab"} onClick={() => setTab("trash")}><NavIcon name="trash" /><span>{t("nav.trash")}</span></button>
         </nav>
       </aside>
       <div className="app">
       {connected === false && (
         <Note kind="warn">
-          Keine Verbindung zu Meetas. Bitte starte den Server neu.
+          {t("app.offline")}
         </Note>
       )}
 

@@ -2,15 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { MeetingListItem, Project, Task, TaskOverview } from "../types";
 import { Note, Spinner } from "./ui";
+import { useI18n, type MessageKey } from "../i18n";
 
-const TASK_STATUS: { value: string; label: string }[] = [
-  { value: "offen", label: "Offen" },
-  { value: "laeuft", label: "Läuft" },
-  { value: "erledigt", label: "Erledigt" },
-  { value: "ueberfaellig", label: "Überfällig" },
-  { value: "ohne_deadline", label: "Ohne Deadline" },
+const TASK_STATUS: { value: string; msgKey: MessageKey }[] = [
+  { value: "offen", msgKey: "task.status.open" },
+  { value: "laeuft", msgKey: "task.status.in_progress" },
+  { value: "erledigt", msgKey: "task.status.done" },
+  { value: "ueberfaellig", msgKey: "task.status.overdue" },
+  { value: "ohne_deadline", msgKey: "task.status.no_deadline" },
 ];
 export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: string) => void }) {
+  const { t } = useI18n();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [overview, setOverview] = useState<TaskOverview | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
@@ -99,8 +101,8 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
   };
 
   const lifecycle = async (action: "archive" | "restore" | "trash" | "permanent", task: Task) => {
-    if (action === "trash" && !window.confirm("Aufgabe in den Papierkorb verschieben? Sie kann wiederhergestellt werden.")) return;
-    if (action === "permanent" && !window.confirm("Aufgabe endgültig löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.")) return;
+    if (action === "trash" && !window.confirm(t("task.confirm_trash"))) return;
+    if (action === "permanent" && !window.confirm(t("task.confirm_permanent"))) return;
     setError(null);
     try {
       if (action === "archive") await api.archiveTask(task.id);
@@ -112,19 +114,19 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
   };
 
   if (loading) {
-    return <div className="panel"><Spinner label="Lade Aufgaben…" /></div>;
+    return <div className="panel"><Spinner label={t("task.loading")} /></div>;
   }
 
   return (
     <div className="panel">
       <div className="head-row">
         <div className="grow">
-          <h1 className="detail-title">Aufgaben</h1>
+          <h1 className="detail-title">{t("tasks.title")}</h1>
           {overview && (
             <div className="detail-meta">
-              <span>{overview.open} offen</span>
-              <span>{overview.by_status["erledigt"] ?? 0} erledigt</span>
-              <span>{overview.total} gesamt</span>
+              <span>{t("task.overview_open", { n: overview.open })}</span>
+              <span>{t("task.overview_done", { n: overview.by_status["erledigt"] ?? 0 })}</span>
+              <span>{t("task.overview_total", { n: overview.total })}</span>
             </div>
           )}
         </div>
@@ -134,47 +136,47 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
 
       <div className="card">
         <div className="row wrap">
-          <input className="grow" value={newText} onChange={(e) => setNewText(e.target.value)} placeholder="Was soll erledigt werden?" />
-          <select value={newProject} onChange={(e) => setNewProject(e.target.value)}><option value="">Kein Projekt</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-          <select value={newMeeting} onChange={(e) => setNewMeeting(e.target.value)}><option value="">Kein Meeting</option>{meetings.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}</select>
-          <button className="btn primary" onClick={() => void create()} disabled={creating || !newText.trim()}>{creating ? "Lege an…" : "Aufgabe anlegen"}</button>
+          <input className="grow" value={newText} onChange={(e) => setNewText(e.target.value)} placeholder={t("task.new_placeholder")} />
+          <select value={newProject} onChange={(e) => setNewProject(e.target.value)}><option value="">{t("common.no_project")}</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          <select value={newMeeting} onChange={(e) => setNewMeeting(e.target.value)}><option value="">{t("common.no_meeting")}</option>{meetings.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}</select>
+          <button className="btn primary" onClick={() => void create()} disabled={creating || !newText.trim()}>{creating ? t("task.creating") : t("task.create")}</button>
         </div>
       </div>
 
-      <div className="task-view-switcher" aria-label="Aufgabenansicht">
-        <button className={viewFilter === "active" ? "tab active" : "tab"} onClick={() => setViewFilter("active")} aria-pressed={viewFilter === "active"}>Aktiv</button>
-        <button className={viewFilter === "archived" ? "tab active" : "tab"} onClick={() => setViewFilter("archived")} aria-pressed={viewFilter === "archived"}>Archiv</button>
-        <button className={viewFilter === "trash" ? "tab active" : "tab"} onClick={() => setViewFilter("trash")} aria-pressed={viewFilter === "trash"}>Papierkorb</button>
+      <div className="task-view-switcher" aria-label={t("task.view_aria")}>
+        <button className={viewFilter === "active" ? "tab active" : "tab"} onClick={() => setViewFilter("active")} aria-pressed={viewFilter === "active"}>{t("common.active")}</button>
+        <button className={viewFilter === "archived" ? "tab active" : "tab"} onClick={() => setViewFilter("archived")} aria-pressed={viewFilter === "archived"}>{t("common.archive")}</button>
+        <button className={viewFilter === "trash" ? "tab active" : "tab"} onClick={() => setViewFilter("trash")} aria-pressed={viewFilter === "trash"}>{t("common.trash")}</button>
       </div>
 
       <details className="card task-filters">
-        <summary>Filter{activeFilterCount > 0 ? ` · ${activeFilterCount} aktiv` : ""}</summary>
+        <summary>{t("task.filters")}{activeFilterCount > 0 ? ` · ${t("task.filters_active", { n: activeFilterCount })}` : ""}</summary>
         <div className="row wrap filters">
           <label className="field">
-            <span>Status</span>
+            <span>{t("common.status")}</span>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">Alle</option>
-              {TASK_STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              <option value="">{t("common.all")}</option>
+              {TASK_STATUS.map((s) => <option key={s.value} value={s.value}>{t(s.msgKey)}</option>)}
             </select>
           </label>
           <label className="field">
-            <span>Verantwortlich</span>
+            <span>{t("task.owner")}</span>
             <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
-              <option value="">Alle</option>
+              <option value="">{t("common.all")}</option>
               {owners.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </label>
           <label className="field">
-            <span>Projekt</span>
+            <span>{t("common.project")}</span>
             <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-              <option value="">Alle</option>
+              <option value="">{t("common.all")}</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
           </label>
           <label className="field">
-            <span>Meeting</span>
+            <span>{t("common.meeting")}</span>
             <select value={meetingFilter} onChange={(e) => setMeetingFilter(e.target.value)}>
-              <option value="">Alle</option>
+              <option value="">{t("common.all")}</option>
               {meetings.map((meeting) => <option key={meeting.id} value={meeting.id}>{meeting.title}</option>)}
             </select>
           </label>
@@ -182,41 +184,41 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
       </details>
 
       {!tasks.length ? (
-        <Note>Keine Aufgaben{statusFilter || ownerFilter || projectFilter || meetingFilter ? " für diesen Filter" : ""}.</Note>
+        <Note>{t("task.empty_none")}{statusFilter || ownerFilter || projectFilter || meetingFilter ? t("task.empty_for_filter") : ""}.</Note>
       ) : (
         <div className="task-list">
-          {tasks.map((t) => (
-            <div key={t.id} className={"task " + (t.display_status ?? t.status)}>
+          {tasks.map((taskItem) => (
+            <div key={taskItem.id} className={"task " + (taskItem.display_status ?? taskItem.status)}>
               <div className="task-main">
                 <input
                   className="task-text task-edit"
-                  defaultValue={t.text}
-                  aria-label={`Aufgabe bearbeiten: ${t.text}`}
+                  defaultValue={taskItem.text}
+                  aria-label={t("task.edit_aria", { text: taskItem.text })}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
-                    if (v && v !== t.text) setText(t, v);
+                    if (v && v !== taskItem.text) setText(taskItem, v);
                   }}
                   onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                 />
                 <div className="task-sub">
-                  <span className="chip">{t.source ?? "manuell"}</span>
-                  {t.meeting_id && t.meeting_title ? (
-                    <button type="button" className="task-link" onClick={() => onOpenMeeting(t.meeting_id!)}>{t.meeting_title}</button>
+                  <span className="chip">{taskItem.source ?? t("task.source_manual")}</span>
+                  {taskItem.meeting_id && taskItem.meeting_title ? (
+                    <button type="button" className="task-link" onClick={() => onOpenMeeting(taskItem.meeting_id!)}>{taskItem.meeting_title}</button>
                   ) : (
-                    <span className="dim">ohne Meeting</span>
+                    <span className="dim">{t("task.no_meeting")}</span>
                   )}
-                  {t.project_name ? <span>Projekt: {t.project_name}</span> : null}
-                  {t.deadline && t.deadline !== "nicht angegeben" ? <span>Deadline: {t.deadline}</span> : null}
+                  {taskItem.project_name ? <span>{t("task.project_label", { name: taskItem.project_name })}</span> : null}
+                  {taskItem.deadline && taskItem.deadline !== "nicht angegeben" ? <span>{t("task.deadline_label", { deadline: taskItem.deadline })}</span> : null}
                 </div>
                 <input
                   className="task-deadline task-edit"
-                  defaultValue={t.deadline === "nicht angegeben" ? "" : (t.deadline ?? "")}
-                  placeholder="Deadline (z. B. Freitag oder 2026-09-04)"
-                  aria-label="Deadline"
+                  defaultValue={taskItem.deadline === "nicht angegeben" ? "" : (taskItem.deadline ?? "")}
+                  placeholder={t("task.deadline_example")}
+                  aria-label={t("task.deadline")}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
-                    const old = t.deadline === "nicht angegeben" ? "" : (t.deadline ?? "");
-                    if (v !== old) setDeadline(t, v);
+                    const old = taskItem.deadline === "nicht angegeben" ? "" : (taskItem.deadline ?? "");
+                    if (v !== old) setDeadline(taskItem, v);
                   }}
                   onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                 />
@@ -224,30 +226,30 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
               <div className="task-controls">
                 <select
                   className="task-status"
-                  value={t.status}
-                  onChange={(e) => setStatus(t, e.target.value)}
-                  title="Status"
+                  value={taskItem.status}
+                  onChange={(e) => setStatus(taskItem, e.target.value)}
+                  title={t("common.status")}
                 >
-                  {TASK_STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  {TASK_STATUS.map((s) => <option key={s.value} value={s.value}>{t(s.msgKey)}</option>)}
                 </select>
                 <input
                   className="task-owner"
-                  defaultValue={t.owner ?? ""}
-                  placeholder="Verantwortlich"
+                  defaultValue={taskItem.owner ?? ""}
+                  placeholder={t("task.owner")}
                   onBlur={(e) => {
                     const v = e.target.value.trim();
-                    if (v !== (t.owner ?? "")) setOwner(t, v);
+                    if (v !== (taskItem.owner ?? "")) setOwner(taskItem, v);
                   }}
                   onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                 />
                 <div className="row task-actions">
-                  {viewFilter !== "active" && <button className="btn small" onClick={() => void lifecycle("restore", t)}>Wiederherstellen</button>}
+                  {viewFilter !== "active" && <button className="btn small" onClick={() => void lifecycle("restore", taskItem)}>{t("common.restore")}</button>}
                   <details className="task-actions-menu">
-                    <summary className="btn small" aria-label="Weitere Aufgabenaktionen">Mehr</summary>
+                    <summary className="btn small" aria-label={t("task.more_aria")}>{t("task.more")}</summary>
                     <div className="task-actions-menu-popover">
-                      {viewFilter === "active" && <button className="btn small" onClick={() => void lifecycle("archive", t)}>Archivieren</button>}
-                      {viewFilter !== "trash" && <button className="btn small danger" onClick={() => void lifecycle("trash", t)}>In Papierkorb</button>}
-                      {viewFilter === "trash" && <button className="btn small danger" onClick={() => void lifecycle("permanent", t)}>Endgültig löschen</button>}
+                      {viewFilter === "active" && <button className="btn small" onClick={() => void lifecycle("archive", taskItem)}>{t("task.archive")}</button>}
+                      {viewFilter !== "trash" && <button className="btn small danger" onClick={() => void lifecycle("trash", taskItem)}>{t("task.trash")}</button>}
+                      {viewFilter === "trash" && <button className="btn small danger" onClick={() => void lifecycle("permanent", taskItem)}>{t("common.delete_permanent")}</button>}
                     </div>
                   </details>
                 </div>

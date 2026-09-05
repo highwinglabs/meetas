@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from core import __version__
+from core import __version__, i18n
 from core.api import rest
 from core.bootstrap import bootstrap
 from core.config import Config, get_config
@@ -73,6 +73,30 @@ def _mount_ui(app: FastAPI, dist: Path) -> None:
     log.info("ui_serving dist=%s", dist)
 
 
+class _LanguageMiddleware:
+    """Pure ASGI middleware that resolves the request language from the
+    ``Accept-Language`` header and stores it in a ContextVar for the duration of
+    the request. Pure ASGI (not BaseHTTPMiddleware) so the ContextVar set here
+    is visible to the endpoint handlers in the same task. German is the default
+    when the header is absent, keeping existing clients unchanged."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = dict(scope.get("headers", []))
+        raw = headers.get(b"accept-language")
+        accept = raw.decode("latin-1") if raw is not None else None
+        token = i18n.current_language.set(i18n.parse_language(accept))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            i18n.current_language.reset(token)
+
+
 def create_app(service: MeetingService,
                ui_dist: str | os.PathLike | None = None) -> FastAPI:
     rest.set_service(service)
@@ -83,6 +107,7 @@ def create_app(service: MeetingService,
         service.close()  # shutdown: finalize active sessions
 
     app = FastAPI(title="meeting-assistant core", version=__version__, lifespan=lifespan)
+    app.add_middleware(_LanguageMiddleware)
     app.include_router(rest.router)
     dist = _resolve_ui_dist(ui_dist)
     if dist is not None:

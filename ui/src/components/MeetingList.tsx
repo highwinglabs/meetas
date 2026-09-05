@@ -3,8 +3,10 @@ import { api } from "../api";
 import type { MeetingListItem } from "../types";
 import { fmtClock, fmtDate } from "../format";
 import { Badge, Note } from "./ui";
+import { useI18n } from "../i18n";
 
 export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }) {
+  const { t } = useI18n();
   const [items, setItems] = useState<MeetingListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -19,7 +21,7 @@ export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }
   }, []);
 
   const trash = async (id: string) => {
-    if (!window.confirm("Meeting in den Papierkorb verschieben? Es wird nicht endgültig gelöscht.")) return;
+    if (!window.confirm(t("meetings.trash_confirm"))) return;
     try { await api.trashMeeting(id); await load(); }
     catch (e) { setError((e as Error).message); }
   };
@@ -27,10 +29,10 @@ export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }
   useEffect(() => { load(); }, [load]);
 
   if (error) {
-    return <div className="panel"><h1>Meetings</h1><Note kind="error">{error}</Note></div>;
+    return <div className="panel"><h1>{t("meetings.title")}</h1><Note kind="error">{error}</Note></div>;
   }
   if (!items) {
-    return <div className="panel"><h1>Meetings</h1><Note>Wird geladen…</Note></div>;
+    return <div className="panel"><h1>{t("meetings.title")}</h1><Note>{t("meetings.loading")}</Note></div>;
   }
 
   const filteredItems = items.filter((meeting) =>
@@ -40,14 +42,14 @@ export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }
   return (
     <div className="panel">
       <div className="head-row">
-        <div className="grow"><h1>Meetings</h1></div>
-        <button className="btn" onClick={load}>Aktualisieren</button>
+        <div className="grow"><h1>{t("meetings.title")}</h1></div>
+        <button className="btn" onClick={load}>{t("common.refresh")}</button>
       </div>
-      {items.length > 0 && <div className="meeting-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Meetings durchsuchen…" aria-label="Meetings durchsuchen" /><span className="dim">{filteredItems.length} von {items.length}</span></div>}
+      {items.length > 0 && <div className="meeting-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("meetings.search_placeholder")} aria-label={t("meetings.search_aria")} /><span className="dim">{t("meetings.count", { shown: filteredItems.length, total: items.length })}</span></div>}
       {items.length === 0 ? (
-        <Note>Keine Meetings.</Note>
+        <Note>{t("meetings.empty")}</Note>
       ) : filteredItems.length === 0 ? (
-        <Note>Keine passenden Meetings.</Note>
+        <Note>{t("meetings.no_match")}</Note>
       ) : (
         <div className="meeting-list">
           {filteredItems.map((m) => (
@@ -55,11 +57,11 @@ export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }
               <button className="meeting-main meeting-open" onClick={() => onOpen(m.id)}>
                 <div className="meeting-title">{m.title}</div>
                 <div className="meeting-sub">
-                  {fmtDate(m.start_at)} · {fmtClock(m.duration_s)} · {m.segments} Segmente
+                  {fmtDate(m.start_at)} · {fmtClock(m.duration_s)} · {t("meetings.segments", { n: m.segments })}
                 </div>
               </button>
               {m.status !== "done" && <Badge status={m.status} />}
-              <button className="btn small danger" onClick={() => void trash(m.id)} disabled={m.status === "recording" || m.status === "paused"} title={m.status === "recording" || m.status === "paused" ? "Aktive Aufnahmen können nicht gelöscht werden." : undefined}>Papierkorb</button>
+              <button className="btn small danger" onClick={() => void trash(m.id)} disabled={m.status === "recording" || m.status === "paused"} title={m.status === "recording" || m.status === "paused" ? t("meetings.trash_disabled") : undefined}>{t("meetings.trash_button")}</button>
             </div>
           ))}
         </div>

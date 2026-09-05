@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { STATUS_LABEL, statusClass } from "../format";
+import { statusClass, statusKey } from "../format";
+import { useI18n } from "../i18n";
 
 export function Spinner({ label }: { label?: string }) {
   return (
@@ -15,5 +16,7 @@ export function Note({ kind = "info", children }: { kind?: "info" | "warn" | "er
 }
 
 export function Badge({ status }: { status: string }) {
-  return <span className={`badge ${statusClass(status)}`}>{STATUS_LABEL[status] ?? status}</span>;
+  const { t } = useI18n();
+  const key = statusKey(status);
+  return <span className={`badge ${statusClass(status)}`}>{key ? t(key) : status}</span>;
 }

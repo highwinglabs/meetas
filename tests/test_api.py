@@ -273,3 +273,35 @@ def test_release_storage_skips_remote_endpoint(client, config):
     out = svc.release_storage()
     assert out["ollama"]["requested"] is False
     assert "lokal" in out["ollama"]["note"]
+
+
+def test_consent_text_german_default_and_english(client):
+    # German is the default (no Accept-Language header); English on request.
+    c, _ = client
+    de = c.get("/consent").json()["text"]
+    assert "Tonaufnahmen" in de  # German default preserved
+    en = c.get("/consent", headers={"Accept-Language": "en"}).json()["text"]
+    assert "records audio" in en
+    assert "Tonaufnahmen" not in en
+
+
+def test_error_detail_localised_by_accept_language(client):
+    # The same failure is German by default and English for Accept-Language: en.
+    c, _ = client
+    r = c.get("/meetings/does-not-exist")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Meeting nicht gefunden: does-not-exist"
+    r = c.get("/meetings/does-not-exist", headers={"Accept-Language": "en"})
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Meeting not found: does-not-exist"
+
+
+def test_validation_error_localised_by_accept_language(client):
+    # A validation error (consent not yet given) is localised per request.
+    c, _ = client
+    r = c.post("/meetings", json={"title": "X"})
+    assert r.status_code == 409
+    assert "Einwilligungs" in r.json()["detail"]
+    r = c.post("/meetings", json={"title": "X"}, headers={"Accept-Language": "en"})
+    assert r.status_code == 409
+    assert r.json()["detail"] == "Please acknowledge the consent and data-protection notice first."
