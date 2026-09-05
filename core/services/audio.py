@@ -7,6 +7,7 @@ import math
 import os
 import wave
 import time as time_module
+import uuid
 from pathlib import Path
 from sqlalchemy import select
 from core.audio.enhancement import enhance_audio, normalize_profile, normalize_profiles, pcm_channel_values

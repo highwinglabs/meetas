@@ -131,6 +131,25 @@ def test_meeting_lifecycle_pause_resume_stop(client):
     assert any(j["stage"] == "transcribe" for j in detail["jobs"])
 
 
+def test_audio_preview_roundtrip(finalize_meeting):
+    # Regression: POST /meetings/{id}/audio/preview answered 500 (NameError:
+    # uuid used without import in create_audio_preview) for finished meetings
+    # with a mic or both source.
+    svc, mid = finalize_meeting(duration_s=2.0)
+    app = create_app(svc)
+    with TestClient(app) as c:
+        r = c.post(f"/meetings/{mid}/audio/preview",
+                   json={"start_s": 0, "duration_s": 2, "profile": {},
+                         "noise_profile_mode": "disabled"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["duration_s"] == 2.0
+        g = c.get(f"/meetings/{mid}/audio/preview/{body['token']}")
+        assert g.status_code == 200
+        assert g.headers["content-type"].startswith("audio/wav")
+        assert g.content[:4] == b"RIFF"
+
+
 def test_workspace_trash_tasks_and_device_preference(client):
     c, _ = client
     c.post("/consent/ack", json={"acknowledged": True})
