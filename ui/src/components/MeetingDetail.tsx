@@ -28,18 +28,6 @@ const DEFAULT_AUDIO_PROFILE: AudioEnhancementProfile = {
   loudness_lufs: -19, loudness_range_lu: 7, loudness_true_peak_db: -1, limiter_db: -1, limiter_attack_ms: 5, limiter_release_ms: 50,
 };
 
-// Mirrors the backend resolution (core/analysis/schema.py:resolve_output_lang +
-// _output_lang_name) so the UI can show which language the analysis is written
-// in. "wie_transkript" resolves to the transcript's own language.
-function analysisOutputLabel(analysisLanguage: string | undefined | null, lang: string | null): string | null {
-  let code = (analysisLanguage ?? "wie_transkript").trim();
-  if (code === "wie_transkript" || code === "" || code === "auto") code = (lang ?? "").trim().toLowerCase();
-  if (!code) return null;
-  const c = code.split("-")[0].split("_")[0];
-  const names: Record<string, string> = { de: "Deutsch", en: "Englisch", fr: "Französisch", es: "Spanisch", it: "Italienisch", pl: "Polnisch" };
-  return names[c] ?? code;
-}
-
 export default function MeetingDetail({
   id,
   segmentId,
@@ -954,7 +942,7 @@ export default function MeetingDetail({
         </button>
         {analysisOpen && <div className="ai-result-body">
           {analysis ? (
-            <AnalysisView content={analysis.content} markdown={analysis.markdown} model={analysis.model} outputLanguage={detail ? analysisOutputLabel(detail.settings?.analysis_language as string | undefined, detail.lang) : null} />
+            <AnalysisView content={analysis.content} markdown={analysis.markdown} model={analysis.model} outputLanguage={analysis.output_lang ?? null} />
           ) : (
             <Note>{!hasSegs ? "Transkript erforderlich." : "Noch keine Zusammenfassung."}</Note>
           )}

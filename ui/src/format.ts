@@ -73,3 +73,45 @@ export const SECTIONS: { key: keyof AnalysisData; title: string }[] = [
   { key: "wichtige_fakten", title: "Wichtige Fakten" },
   { key: "follow_ups", title: "Follow-ups" },
 ];
+
+// Localised analysis display strings (de/en), mirroring core/analysis/schema.py.
+// Only the two output languages reachable via the per-meeting analysis-language
+// control are provided; anything else (incl. a legacy null) falls back to German.
+const SECTIONS_EN: { key: keyof AnalysisData; title: string }[] = [
+  { key: "kurzfassung", title: "Summary" },
+  { key: "themen", title: "Topics" },
+  { key: "entscheidungen", title: "Decisions" },
+  { key: "aufgaben", title: "Action Items" },
+  { key: "offene_fragen", title: "Open Questions" },
+  { key: "naechste_schritte", title: "Next Steps" },
+  { key: "risiken", title: "Risks / Issues" },
+  { key: "wichtige_fakten", title: "Key Facts" },
+  { key: "follow_ups", title: "Follow-ups" },
+];
+const SECTIONS_BY_LANG: Record<string, { key: keyof AnalysisData; title: string }[]> = {
+  de: SECTIONS,
+  en: SECTIONS_EN,
+};
+const MISSING_BY_LANG: Record<string, string> = { de: "nicht angegeben", en: "not specified" };
+const ANALYSIS_LABELS_BY_LANG: Record<string, Record<string, string>> = {
+  de: { verantwortlich: "Verantwortlich", frist: "Frist" },
+  en: { verantwortlich: "Owner", frist: "Deadline" },
+};
+
+export function analysisLangCode(lang: string | null | undefined): string {
+  const code = (lang ?? "").trim().toLowerCase().split("-")[0];
+  return code === "en" ? "en" : "de";
+}
+
+export function sectionsForLang(lang: string | null | undefined): { key: keyof AnalysisData; title: string }[] {
+  return SECTIONS_BY_LANG[analysisLangCode(lang)] ?? SECTIONS;
+}
+
+export function missingText(lang: string | null | undefined): string {
+  return MISSING_BY_LANG[analysisLangCode(lang)] ?? "nicht angegeben";
+}
+
+export function analysisLabel(name: string, lang: string | null | undefined): string {
+  const table = ANALYSIS_LABELS_BY_LANG[analysisLangCode(lang)] ?? ANALYSIS_LABELS_BY_LANG.de;
+  return table[name] ?? ANALYSIS_LABELS_BY_LANG.de[name] ?? name;
+}

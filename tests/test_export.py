@@ -7,8 +7,17 @@ import pytest
 
 from core.export import export_meeting
 from core.store.db import session_scope
-from core.store.models import Recording
+from core.store.models import Meeting, Recording
 from sqlalchemy import select
+
+
+def _set_analysis_language(svc, mid, code: str) -> None:
+    with session_scope() as s:
+        m = s.get(Meeting, mid)
+        existing = json.loads(m.settings_json or "{}")
+        existing["analysis_language"] = code
+        m.settings_json = json.dumps(existing, ensure_ascii=False)
+        s.commit()
 
 
 def test_export_markdown_has_source_refs(config, finalize_meeting):
@@ -67,3 +76,39 @@ def test_export_unknown_meeting_raises(config, finalize_meeting):
     svc = finalize_meeting()[0]
     with pytest.raises(KeyError):
         svc.export_meeting("does-not-exist", fmt="markdown")
+
+
+def test_export_html_lang_and_chrome_follow_analysis_language(config, finalize_meeting):
+    """The document language (HTML <html lang> + all chrome labels) follows the
+    analysis output language, not the meeting/transcript language."""
+    # German control: no analysis, German transcript -> German document.
+    svc, mid = finalize_meeting()
+    svc.transcribe(mid)
+    de = svc.export_meeting(mid, fmt="html")["content"]
+    assert "<html lang='de'>" in de
+    assert "Transkript" in de
+    assert "Quellenverweise" in de
+
+    # English: per-meeting analysis_language="en" -> English chrome and <html lang>,
+    # even though the transcript (and its content) is still German.
+    svc2, mid2 = finalize_meeting()
+    svc2.transcribe(mid2)
+    _set_analysis_language(svc2, mid2, "en")
+    svc2.analyze(mid2)  # stores an analysis row with output_lang="en"
+    en = svc2.export_meeting(mid2, fmt="html")["content"]
+    assert "<html lang='en'>" in en
+    assert "Transcript" in en
+    assert "Source references" in en
+    assert "Analysis (local, with sources)" in en
+    assert "Quellenverweise" not in en
+
+
+def test_export_markdown_localised_by_analysis_language(config, finalize_meeting):
+    svc, mid = finalize_meeting()
+    svc.transcribe(mid)
+    _set_analysis_language(svc, mid, "en")
+    svc.analyze(mid)
+    md = svc.export_meeting(mid, fmt="markdown")["content"]
+    assert "## Summary" in md            # localised analysis section heading
+    assert "## Source references" in md  # localised chrome
+    assert "## Kurzfassung" not in md

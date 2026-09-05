@@ -181,6 +181,96 @@ def test_analyze_system_prompt_output_language():
     assert "Risiken" in audit
 
 
+def _sample_analysis():
+    """A minimal normalised analysis to exercise the localised renderer."""
+    return {
+        "kurzfassung": [],  # empty -> the "not specified" placeholder is shown
+        "themen": [{"text": "T", "quellen": [
+            {"segment_id": "S1", "sprecher": "A", "timestamp": "0:00"}]}],
+        "entscheidungen": [],
+        "aufgaben": [{"text": "A", "verantwortlich": "nicht angegeben",
+                      "deadline": "nicht angegeben", "quellen": [
+            {"segment_id": "S2", "sprecher": "B", "timestamp": "0:00"}]}],
+        "offene_fragen": [],
+        "naechste_schritte": [],
+        "risiken": [],
+        "wichtige_fakten": [],
+        "follow_ups": [],
+    }
+
+
+def test_render_markdown_default_is_german():
+    """Omitting lang reproduces the historical German output exactly."""
+    md = schema.render_markdown(_sample_analysis())
+    assert "## Kurzfassung" in md
+    assert "## Aufgaben / Action Items" in md
+    assert "- nicht angegeben" in md
+    assert "Verantwortlich: nicht angegeben" in md
+    assert "Quelle: S2" in md
+    # explicit "de", a German region tag and an unknown code stay byte-identical.
+    assert schema.render_markdown(_sample_analysis(), lang="de") == md
+    assert schema.render_markdown(_sample_analysis(), lang="de-DE") == md
+    assert schema.render_markdown(_sample_analysis(), lang="xx") == md
+
+
+def test_render_markdown_localised_english():
+    md = schema.render_markdown(_sample_analysis(), lang="en")
+    assert "## Summary" in md
+    assert "## Action Items" in md
+    assert "- not specified" in md
+    assert "Owner: not specified" in md
+    assert "Deadline: not specified" in md
+    assert "Source: S2" in md
+    # the German headings / labels / sentinel must be gone
+    assert "Kurzfassung" not in md
+    assert "Verantwortlich" not in md
+    assert "nicht angegeben" not in md
+    # content produced by the model is preserved verbatim (not translated)
+    assert "- T" in md and "- A" in md
+
+
+def test_missing_detection_and_localised_labels():
+    # the English sentinels are recognised as missing (no invented values)
+    assert schema.is_missing("not specified") is True
+    assert schema.is_missing("not given") is True
+    assert schema.is_missing("Ben") is False
+    # localised display helpers fall back to German for anything unsupported
+    assert schema.missing_text(None) == "nicht angegeben"
+    assert schema.missing_text("en") == "not specified"
+    assert schema.missing_text("xx") == "nicht angegeben"
+    assert schema.section_title("kurzfassung", "en") == "Summary"
+    assert schema.section_title("kurzfassung", None) == "Kurzfassung"
+    assert schema.analysis_label("verantwortlich", "en") == "Owner"
+    assert schema.analysis_label("quelle", "en") == "Source"
+    # unknown names fall back to the key itself, in either language
+    assert schema.analysis_label("frist", "de") == "frist"
+    assert schema.analysis_label("frist", "en") == "frist"
+
+
+def test_analyze_stores_output_lang(config, finalize_meeting):
+    """The resolved output language is persisted on the analysis row and returned.
+
+    It drives the localised markdown (headings + placeholder), while the model's
+    text content is stored verbatim."""
+    # Default: German transcript + "wie_transkript" -> "de".
+    svc, mid = _with_transcript(finalize_meeting)
+    out = svc.analyze(mid)
+    assert out["output_lang"] == "de"
+    assert svc.get_meeting(mid)["analyses"][0]["output_lang"] == "de"
+    assert "## Kurzfassung" in out["markdown"]
+
+    # Explicit English output -> stored "en" and a localised markdown.
+    svc2, mid2 = _with_transcript(finalize_meeting, llm_engine=MockLLM())
+    _set_meeting_settings(svc2, mid2, analysis_language="en")
+    out2 = svc2.analyze(mid2)
+    assert out2["output_lang"] == "en"
+    a2 = svc2.get_meeting(mid2)["analyses"][0]
+    assert a2["output_lang"] == "en"
+    assert "## Summary" in out2["markdown"]
+    assert "Owner: not specified" in out2["markdown"]
+    assert "## Summary" in a2["markdown"]  # detail markdown follows stored lang
+
+
 def test_analyze_idempotent_updates_single_row(config, finalize_meeting):
     svc, mid = _with_transcript(finalize_meeting)
     svc.analyze(mid)

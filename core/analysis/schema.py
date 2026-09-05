@@ -22,8 +22,9 @@ NOT_GIVEN = "nicht angegeben"
 
 # Every value that means "not specified" in stored/produced analysis data. The
 # legacy German sentinel dominates; the short forms the UI/API may also emit are
-# recognised too. Defined in ONE place so missing-value detection never drifts.
-LEGACY_MISSING = {"", "n/a", "-", "nicht angegeben"}
+# recognised too. The English forms appear once an analysis is written in
+# English. Defined in ONE place so missing-value detection never drifts.
+LEGACY_MISSING = {"", "n/a", "-", "nicht angegeben", "not specified", "not given"}
 
 
 def is_missing(value: Any) -> bool:
@@ -148,6 +149,59 @@ def _output_lang_directive(output_lang: Optional[str]) -> str:
         "sowie jedes 'text'-Feld) auf " + name
         + " aus. Uebersetze den Inhalt frei, halte aber Namen, Zahlen, Zitate "
         "und alle Quellenangaben exakt bei."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Localised DISPLAY strings for analysis rendering (de/en).
+#
+# Only the two output languages reachable via the per-meeting analysis-language
+# control are provided; anything else (incl. NULL / legacy) falls back to
+# German, the historical default. These are display-only: the LLM contract and
+# the stored sentinel stay NOT_GIVEN ("nicht angegeben") -- they are mapped to
+# the language at render time, never rewritten in storage.
+# ---------------------------------------------------------------------------
+_SECTION_TITLES_BY_LANG: Dict[str, Dict[str, str]] = {
+    "de": {key: title for key, title, _ in SECTIONS},
+    "en": {
+        "kurzfassung": "Summary",
+        "themen": "Topics",
+        "entscheidungen": "Decisions",
+        "aufgaben": "Action Items",
+        "offene_fragen": "Open Questions",
+        "naechste_schritte": "Next Steps",
+        "risiken": "Risks / Issues",
+        "wichtige_fakten": "Key Facts",
+        "follow_ups": "Follow-ups",
+    },
+}
+_MISSING_TEXT_BY_LANG: Dict[str, str] = {"de": NOT_GIVEN, "en": "not specified"}
+_ANALYSIS_LABELS_BY_LANG: Dict[str, Dict[str, str]] = {
+    "de": {"verantwortlich": "Verantwortlich", "deadline": "Deadline", "quelle": "Quelle"},
+    "en": {"verantwortlich": "Owner", "deadline": "Deadline", "quelle": "Source"},
+}
+
+
+def _lang_code(lang: Optional[str]) -> str:
+    """Normalise a stored/derived language to a supported key; fallback "de"."""
+    key = (lang or "").strip().lower().split("-", 1)[0].split("_", 1)[0]
+    return key if key in _SECTION_TITLES_BY_LANG else "de"
+
+
+def section_title(key: str, lang: Optional[str] = None) -> str:
+    """Display title for an analysis section in the given language."""
+    return _SECTION_TITLES_BY_LANG[_lang_code(lang)].get(key, SECTION_TITLES.get(key, key))
+
+
+def missing_text(lang: Optional[str] = None) -> str:
+    """The 'not specified' placeholder in the given language (display only)."""
+    return _MISSING_TEXT_BY_LANG[_lang_code(lang)]
+
+
+def analysis_label(name: str, lang: Optional[str] = None) -> str:
+    """Small labels used inside the analysis rendering (display only)."""
+    return _ANALYSIS_LABELS_BY_LANG[_lang_code(lang)].get(
+        name, _ANALYSIS_LABELS_BY_LANG["de"].get(name, name)
     )
 
 
@@ -553,38 +607,50 @@ def validate_analysis(data: Any, valid_segment_ids: set) -> Tuple[Optional[dict]
 
 
 def render_markdown(analysis: Optional[Dict[str, Any]],
-                    section_keys: Optional[List[str]] = None) -> Optional[str]:
+                    section_keys: Optional[List[str]] = None,
+                    lang: Optional[str] = None) -> Optional[str]:
     """Render the normalised analysis as readable Markdown for UI/CLI/export.
 
     ``section_keys`` optionally restricts the output to the given sections
     (output order always follows SECTIONS). String entries from unnormalised
     legacy records are rendered as plain bullets; non-dict sources are ignored.
+
+    ``lang`` localises the section headings, the "not specified" placeholder and
+    the action-item labels to the analysis output language. It defaults to
+    German (the historical default) -- omitting it reproduces the exact output
+    of the previous implementation.
     """
     if not analysis:
         return None
     keys = section_keys or list(SECTION_KEYS)
+    missing = missing_text(lang)
+    lbl = _ANALYSIS_LABELS_BY_LANG[_lang_code(lang)]
     out: List[str] = []
-    for key, title, _ in SECTIONS:
+    for key, _title, _ in SECTIONS:
         if key not in keys:
             continue
-        out.append(f"## {title}")
+        out.append(f"## {section_title(key, lang)}")
         entries = analysis.get(key, []) or []
         if not entries:
-            out.append(f"- {NOT_GIVEN}")
+            out.append(f"- {missing}")
         for e in entries:
             if isinstance(e, str):
                 out.append(f"- {e}")
                 continue
             out.append(f"- {e.get('text', '')}")
             if key == "aufgaben":
+                verantwortlich = e.get("verantwortlich")
+                deadline = e.get("deadline")
                 out.append(
-                    f"  - Verantwortlich: {e.get('verantwortlich', NOT_GIVEN)} | "
-                    f"Deadline: {e.get('deadline', NOT_GIVEN)}"
+                    f"  - {lbl['verantwortlich']}: "
+                    f"{verantwortlich if not is_missing(verantwortlich) else missing} | "
+                    f"{lbl['deadline']}: "
+                    f"{deadline if not is_missing(deadline) else missing}"
                 )
             for q in e.get("quellen", []) or []:
                 if isinstance(q, dict):
                     out.append(
-                        f"  - Quelle: {q.get('segment_id', '?')} · "
+                        f"  - {lbl['quelle']}: {q.get('segment_id', '?')} · "
                         f"{q.get('sprecher', '?')} · {q.get('timestamp', '?')}"
                     )
         out.append("")

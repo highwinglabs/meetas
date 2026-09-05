@@ -77,6 +77,9 @@ export interface AnalysisData {
 export interface Analysis {
   kind: string;
   model: string;
+  // Language the analysis content was written in (resolved at analysis time).
+  // null/absent for legacy rows -> the UI falls back to German.
+  output_lang?: string | null;
   content: string; // the validated JSON (as a string)
   markdown: string; // rendered markdown of the same content
   created_at: string | null;

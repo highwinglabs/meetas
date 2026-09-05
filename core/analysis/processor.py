@@ -88,6 +88,7 @@ class AnalysisProcessor:
         override_system: Optional[str] = None,
         cancel_event: Optional[threading.Event] = None,
         still_current: Optional[Callable[[], bool]] = None,
+        output_lang: Optional[str] = None,
     ) -> Dict[str, Any]:
         # 1) Preconditions (do not flip status to failed for a bad precondition).
         with session_scope() as s:
@@ -190,7 +191,7 @@ class AnalysisProcessor:
                         f"{detail}. Es wurde nichts gespeichert (keine Fakten erfunden)."
                     )
             content = json.dumps(normalised, ensure_ascii=False, indent=2)
-            markdown = schema.render_markdown(normalised)
+            markdown = schema.render_markdown(normalised, lang=output_lang)
         except LLMCancelledError:
             return _finish_cancelled()
         except Exception as exc:  # noqa: BLE001 - normalise any failure to job/DB state
@@ -224,6 +225,7 @@ class AnalysisProcessor:
                 s.add(analysis)
                 s.flush()
             analysis.model = model_used
+            analysis.output_lang = output_lang
             analysis.content = content
             m = s.get(Meeting, meeting_id)
             if m is not None:
@@ -247,6 +249,7 @@ class AnalysisProcessor:
             "status": "done",
             "kind": kind,
             "model": model_used,
+            "output_lang": output_lang,
             "content": content,
             "markdown": markdown,
             "created_at": created_at,

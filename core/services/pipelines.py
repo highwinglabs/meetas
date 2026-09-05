@@ -52,6 +52,7 @@ class PipelineMixin:
         try:
             out = self._analysis_processor.process(
                 meeting_id, engine, kind=kind, override_system=system,
+                output_lang=output_lang,
                 cancel_event=cancel_event,
                 still_current=lambda: self._analysis_tokens.get(meeting_id) == token,
             )

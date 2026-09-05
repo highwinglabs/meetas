@@ -27,7 +27,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from core.analysis import schema as analysis_schema
-from core.analysis.schema import NOT_GIVEN
 from core.config import Config, get_config
 from core.logging_setup import get_logger
 from core.store.db import session_scope
@@ -44,6 +43,64 @@ _FALLBACK_NOTE = {
     "docx": "DOCX-Tooling (python-docx) nicht vorhanden -- statt DOCX wurde Markdown erstellt.",
 }
 
+# Localised export CHROME (headings + meta labels), de/en. Only the two output
+# languages reachable via the per-meeting analysis-language control are
+# provided; anything else (incl. NULL / legacy) falls back to German, the
+# historical default. The "not specified" placeholder is shared with the
+# analysis via analysis_schema.missing_text.
+_EXPORT_LABELS = {
+    "de": {
+        "status": "Status", "zeitraum": "Zeitraum", "sprache": "Sprache",
+        "audio_quelle": "Audio-Quelle", "segmente": "Segmente", "tags": "Tags",
+        "analyse": "Analyse (lokal, mit Quellen)", "analyse_kurz": "Analyse",
+        "transkript": "Transkript",
+        "quellen": "Quellenverweise", "zeit": "Zeit", "sprecher": "Sprecher",
+        "text": "Text",
+    },
+    "en": {
+        "status": "Status", "zeitraum": "Period", "sprache": "Language",
+        "audio_quelle": "Audio source", "segmente": "Segments", "tags": "Tags",
+        "analyse": "Analysis (local, with sources)", "analyse_kurz": "Analysis",
+        "transkript": "Transcript",
+        "quellen": "Source references", "zeit": "Time", "sprecher": "Speaker",
+        "text": "Text",
+    },
+}
+
+
+def _doc_lang(data: dict) -> str:
+    """The language all export labels use; fallback German (historical default)."""
+    key = (data.get("lang_doc") or "").strip().lower().split("-", 1)[0]
+    return key if key in _EXPORT_LABELS else "de"
+
+
+def _xl(key: str, data: dict) -> str:
+    """A localised export-chrome label (de/en, fallback de)."""
+    return _EXPORT_LABELS[_doc_lang(data)][key]
+
+
+def _document_lang(meeting, analysis_row) -> str:
+    """Resolve the language the exported document should be written in.
+
+    Preference order: the analysis's stored output language, else the resolved
+    per-meeting analysis-language choice (``wie_transkript`` -> transcript),
+    else the transcript language, else German (historical default).
+    """
+    if analysis_row is not None and analysis_row.output_lang:
+        return analysis_row.output_lang
+    settings: dict = {}
+    raw = getattr(meeting, "settings_json", None)
+    if raw:
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, dict):
+                settings = loaded
+        except (ValueError, TypeError):
+            settings = {}
+    resolved = analysis_schema.resolve_output_lang(
+        settings.get("analysis_language"), meeting.lang)
+    return resolved or meeting.lang or "de"
+
 
 def _fmt_ts(seconds: float | None) -> str:
     if seconds is None:
@@ -52,9 +109,9 @@ def _fmt_ts(seconds: float | None) -> str:
     return f"{s // 60:02d}:{s % 60:02d}"
 
 
-def _fmt_dt(dt) -> str:
+def _fmt_dt(dt, lang: str = "de") -> str:
     if not dt:
-        return NOT_GIVEN
+        return analysis_schema.missing_text(lang)
     aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
     return aware.astimezone(ZoneInfo("Europe/Berlin")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -88,29 +145,32 @@ def _load(meeting_id: str, include_analysis: bool = True) -> dict:
                  "audio_ref": x.audio_ref} for x in segs
             ],
         }
+        a = s.scalar(select(Analysis).where(
+            Analysis.meeting_id == meeting_id, Analysis.kind == "summary"))
+        data["lang_doc"] = _document_lang(m, a)
         if include_analysis:
-            a = s.scalar(select(Analysis).where(
-                Analysis.meeting_id == meeting_id, Analysis.kind == "summary"))
             data["analysis"] = analysis_schema.extract_json(a.content) if (a and a.content) else None
         return data
 
 
-def _speaker(x: dict) -> str:
-    return x["speaker_id"] or NOT_GIVEN
+def _speaker(x: dict, lang: str = "de") -> str:
+    return x["speaker_id"] or analysis_schema.missing_text(lang)
 
 
 def _header_block(data: dict) -> list[str]:
     m, rec = data["meeting"], data["recording"]
+    lang = _doc_lang(data)
+    missing = analysis_schema.missing_text(lang)
     lines = [
-        f"- **Status:** {m['status']}",
-        f"- **Zeitraum:** {_fmt_dt(m['start_at'])} → {_fmt_dt(m['end_at'])}"
+        f"- **{_xl('status', data)}:** {m['status']}",
+        f"- **{_xl('zeitraum', data)}:** {_fmt_dt(m['start_at'], lang)} → {_fmt_dt(m['end_at'], lang)}"
         + (f" ({round(m['duration_s'],1)} s)" if m['duration_s'] else ""),
-        f"- **Sprache:** {m['lang'] or NOT_GIVEN}",
-        f"- **Audio-Quelle:** {(rec or {}).get('original_path') or NOT_GIVEN}",
-        f"- **Segmente:** {len(data['segments'])}",
+        f"- **{_xl('sprache', data)}:** {m['lang'] or missing}",
+        f"- **{_xl('audio_quelle', data)}:** {(rec or {}).get('original_path') or missing}",
+        f"- **{_xl('segmente', data)}:** {len(data['segments'])}",
     ]
     if data.get("tags"):
-        lines.append(f"- **Tags:** {', '.join(data['tags'])}")
+        lines.append(f"- **{_xl('tags', data)}:** {', '.join(data['tags'])}")
     return lines
 
 
@@ -118,46 +178,54 @@ def render_markdown(data: dict, include_transcript: bool = True,
                     include_analysis: bool = True,
                     section_keys: list | None = None) -> str:
     m = data["meeting"]
+    lang = _doc_lang(data)
+    missing = analysis_schema.missing_text(lang)
     lines = [f"# {m['title']}", ""] + _header_block(data) + [""]
     if include_analysis:
-        am = analysis_schema.render_markdown(data.get("analysis"), section_keys)
+        am = analysis_schema.render_markdown(data.get("analysis"), section_keys, lang=lang)
         if am:
-            lines += ["## Analyse (lokal, mit Quellen)", "", am.rstrip(), ""]
+            lines += [f"## {_xl('analyse', data)}", "", am.rstrip(), ""]
     if include_transcript:
-        lines += ["## Transkript", "",
-                  "| Zeit | Sprecher | Text |", "|---|---|---|"]
+        lines += [f"## {_xl('transkript', data)}", "",
+                  f"| {_xl('zeit', data)} | {_xl('sprecher', data)} | {_xl('text', data)} |",
+                  "|---|---|---|"]
         for x in data["segments"]:
-            speaker = _speaker(x).replace("|", "\\|")
+            speaker = _speaker(x, lang).replace("|", "\\|")
             text = (x["text"] or "").replace("|", "\\|")
             lines.append(f"| {_fmt_ts(x['start_s'])} | {speaker} | {text} `[seg:{x['id']}]` |")
-    lines += ["", "## Quellenverweise", ""]
+    lines += ["", f"## {_xl('quellen', data)}", ""]
     for x in data["segments"]:
-        audio = x["audio_ref"] or NOT_GIVEN
+        audio = x["audio_ref"] or missing
         lines.append(f"- `[seg:{x['id']}]` {_fmt_ts(x['start_s'])}–{_fmt_ts(x['end_s'])} · "
                      f"{audio} · „{x['text']}“")
     return "\n".join(lines) + "\n"
 
 
 def render_txt(data: dict, include_transcript: bool = True,
-               include_analysis: bool = True,
-               section_keys: list | None = None) -> str:
+                include_analysis: bool = True,
+                section_keys: list | None = None) -> str:
     m = data["meeting"]
+    lang = _doc_lang(data)
+    missing = analysis_schema.missing_text(lang)
     lines = [m["title"], "=" * max(4, len(m["title"]))]
     for h in _header_block(data):
         lines.append(h.replace("**", ""))
     if include_analysis:
-        am = analysis_schema.render_markdown(data.get("analysis"), section_keys)
+        am = analysis_schema.render_markdown(data.get("analysis"), section_keys, lang=lang)
         if am:
-            lines += ["", "Analyse (lokal, mit Quellen)", "-" * 29]
+            title = _xl("analyse", data)
+            lines += ["", title, "-" * len(title)]
             lines += [ln.replace("## ", "").replace("##", "")
                       for ln in am.splitlines()]
     if include_transcript:
-        lines += ["", "Transkript", "-" * 8]
+        title = _xl("transkript", data)
+        lines += ["", title, "-" * len(title)]
         for x in data["segments"]:
-            lines.append(f"[{_fmt_ts(x['start_s'])}] {_speaker(x)}: {x['text']}  (seg:{x['id']})")
-    lines += ["", "Quellenverweise", "-" * 15]
+            lines.append(f"[{_fmt_ts(x['start_s'])}] {_speaker(x, lang)}: {x['text']}  (seg:{x['id']})")
+    title = _xl("quellen", data)
+    lines += ["", title, "-" * len(title)]
     for x in data["segments"]:
-        audio = x["audio_ref"] or NOT_GIVEN
+        audio = x["audio_ref"] or missing
         lines.append(f"seg:{x['id']}  {_fmt_ts(x['start_s'])}-{_fmt_ts(x['end_s'])}  {audio}")
     return "\n".join(lines) + "\n"
 
@@ -169,8 +237,8 @@ def render_json(data: dict, include_transcript: bool = True,
         "export": {"format": "json",
                    "generated_at": datetime.now(timezone.utc).isoformat()},
         "meeting": {**data["meeting"],
-                    "start_at": _fmt_dt(data["meeting"]["start_at"]),
-                    "end_at": _fmt_dt(data["meeting"]["end_at"])},
+                    "start_at": _fmt_dt(data["meeting"]["start_at"], _doc_lang(data)),
+                    "end_at": _fmt_dt(data["meeting"]["end_at"], _doc_lang(data))},
         "recording": data["recording"],
         "tags": data.get("tags", []),
     }
@@ -187,9 +255,11 @@ def render_html(data: dict, include_transcript: bool = True,
                 include_analysis: bool = True,
                 section_keys: list | None = None) -> str:
     m = data["meeting"]
+    lang = _doc_lang(data)
+    missing = analysis_schema.missing_text(lang)
     esc = html.escape
     parts = [
-        "<!doctype html><html lang='de'><head><meta charset='utf-8'>",
+        f"<!doctype html><html lang='{esc(lang)}'><head><meta charset='utf-8'>",
         f"<title>{esc(m['title'])}</title>",
         "<style>body{font-family:sans-serif;margin:2rem;max-width:900px;line-height:1.4}"
         "table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;"
@@ -203,21 +273,22 @@ def render_html(data: dict, include_transcript: bool = True,
         parts.append(f"<li>{esc(txt)}</li>")
     parts.append("</ul>")
     if include_analysis:
-        am = analysis_schema.render_markdown(data.get("analysis"), section_keys)
+        am = analysis_schema.render_markdown(data.get("analysis"), section_keys, lang=lang)
         if am:
-            parts.append("<h2>Analyse (lokal, mit Quellen)</h2>")
+            parts.append(f"<h2>{esc(_xl('analyse', data))}</h2>")
             parts.append("<pre style='white-space:pre-wrap'>" + esc(am) + "</pre>")
     if include_transcript:
-        parts.append("<h2>Transkript</h2><table><tr><th>Zeit</th><th>Sprecher</th>"
-                     "<th>Text</th></tr>")
+        parts.append(f"<h2>{esc(_xl('transkript', data))}</h2><table>"
+                     f"<tr><th>{esc(_xl('zeit', data))}</th><th>{esc(_xl('sprecher', data))}</th>"
+                     f"<th>{esc(_xl('text', data))}</th></tr>")
         for x in data["segments"]:
             parts.append(
-                f"<tr><td>{_fmt_ts(x['start_s'])}</td><td>{esc(_speaker(x))}</td>"
+                f"<tr><td>{_fmt_ts(x['start_s'])}</td><td>{esc(_speaker(x, lang))}</td>"
                 f"<td>{esc(x['text'] or '')} <code>[seg:{x['id']}]</code></td></tr>")
         parts.append("</table>")
-    parts.append("<h2>Quellenverweise</h2><ul>")
+    parts.append(f"<h2>{esc(_xl('quellen', data))}</h2><ul>")
     for x in data["segments"]:
-        audio = x["audio_ref"] or NOT_GIVEN
+        audio = x["audio_ref"] or missing
         parts.append(f"<li><code>[seg:{x['id']}]</code> "
                      f"{_fmt_ts(x['start_s'])}–{_fmt_ts(x['end_s'])} · {esc(audio)}</li>")
     parts += ["</ul>", "</body></html>"]
@@ -251,6 +322,8 @@ def _build_docx(data: dict, path: Path, md: str,
         return False
     d = docx.Document()
     m = data["meeting"]
+    lang = _doc_lang(data)
+    missing = analysis_schema.missing_text(lang)
     d.add_heading(m["title"], 0)
     for h in _header_block(data):
         d.add_paragraph(h.replace("**", ""))
@@ -258,8 +331,8 @@ def _build_docx(data: dict, path: Path, md: str,
     # deliberately omit the analysis or transcript, and section filtering must
     # apply to DOCX as well.
     if include_analysis and data.get("analysis"):
-        d.add_heading("Analyse", level=1)
-        am = analysis_schema.render_markdown(data.get("analysis"), section_keys)
+        d.add_heading(_xl("analyse_kurz", data), level=1)
+        am = analysis_schema.render_markdown(data.get("analysis"), section_keys, lang=lang)
         if am:
             for ln in am.splitlines():
                 if ln.startswith("## "):
@@ -267,12 +340,12 @@ def _build_docx(data: dict, path: Path, md: str,
                 else:
                     d.add_paragraph(ln)
     if include_transcript:
-        d.add_heading("Transkript", level=1)
+        d.add_heading(_xl("transkript", data), level=1)
         for x in data["segments"]:
-            d.add_paragraph(f"[{_fmt_ts(x['start_s'])}] {_speaker(x)}: {x['text']}  (seg:{x['id']})")
-        d.add_heading("Quellenverweise", level=1)
+            d.add_paragraph(f"[{_fmt_ts(x['start_s'])}] {_speaker(x, lang)}: {x['text']}  (seg:{x['id']})")
+        d.add_heading(_xl("quellen", data), level=1)
         for x in data["segments"]:
-            audio = x["audio_ref"] or NOT_GIVEN
+            audio = x["audio_ref"] or missing
             d.add_paragraph(f"seg:{x['id']}  {_fmt_ts(x['start_s'])}-{_fmt_ts(x['end_s'])}  {audio}")
     d.save(str(path))
     return True

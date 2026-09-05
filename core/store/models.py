@@ -225,6 +225,9 @@ class Analysis(Base):
     # summary | action_items | ... (forward-compatible; only "summary" in MVP)
     kind = Column(String(16), default="summary", nullable=False)
     model = Column(String(128), nullable=True)  # which model produced it
+    # Language the analysis *content* was written in (resolved at analysis time).
+    # NULL for legacy rows -> renderers fall back to German (historical default).
+    output_lang = Column(String(8), nullable=True)
     content = Column(Text, default="", nullable=False)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

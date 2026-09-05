@@ -105,12 +105,15 @@ def _task_display_status(task: Task) -> str:
     return "ueberfaellig" if due_day < berlin_today else (task.status or "offen")
 
 
-def _analysis_markdown(content: Optional[str]) -> str:
+def _analysis_markdown(content: Optional[str], lang: Optional[str] = None) -> str:
     """Render a stored analysis (JSON) as Markdown; fall back to the raw text if
-    it is not valid structured JSON (e.g. a very old record)."""
+    it is not valid structured JSON (e.g. a very old record).
+
+    ``lang`` localises the section headings / "not specified" placeholder to the
+    analysis output language (defaults to German, the historical default)."""
     if not content:
         return ""
     data = schema.extract_json(content)
     if isinstance(data, dict):
-        return schema.render_markdown(data)
+        return schema.render_markdown(data, lang=lang)
     return content

@@ -37,7 +37,7 @@ from core.store.models import (
 # Keep this in sync with the current migration head.  New migrations must
 # advance the head rather than making the production code pretend that the
 # previous revision is still current.
-_HEAD = "e5a7c9d1f3b2"
+_HEAD = "f3a9c7e5b2d4"
 
 
 def _tables(db_path) -> set[str]:

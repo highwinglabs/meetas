@@ -225,8 +225,9 @@ class MeetingsMixin:
                 ],
                 "analyses": [
                     {
-                        "kind": a.kind, "model": a.model, "content": a.content,
-                        "markdown": _analysis_markdown(a.content),
+                        "kind": a.kind, "model": a.model,
+                        "output_lang": a.output_lang, "content": a.content,
+                        "markdown": _analysis_markdown(a.content, lang=a.output_lang),
                         "created_at": utc_iso(a.created_at),
                     }
                     for a in analyses
