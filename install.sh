@@ -37,7 +37,7 @@ for arg in "$@"; do
     --with-models) WITH_MODELS=1 ;;
     --no-start)    NO_START=1 ;;
     -h|--help)     usage; exit 0 ;;
-    *) echo "Unbekanntes Argument: $arg" >&2; usage; exit 2 ;;
+    *) echo "Unknown argument: $arg" >&2; usage; exit 2 ;;
   esac
 done
 
@@ -57,11 +57,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 echo "${B}Meeting Assistant - Installation${O}"
-echo "Ziel: ${ROOT}"
+echo "Target: ${ROOT}"
 echo
 
 # --------------------------------------------------------------- 1) system packages
-step "Prüfe System-Voraussetzungen (ffmpeg, PortAudio) ..."
+step "Checking system requirements (ffmpeg, PortAudio) ..."
 PKG=""
 if   have apt-get; then PKG="apt"
 elif have dnf;     then PKG="dnf"
@@ -93,92 +93,92 @@ if (( need_portaudio )); then
 fi
 
 if [[ -z "$PKG" ]] && (( need_ffmpeg || need_portaudio )); then
-  warn "Kein unterstützter Paketmanager (apt/dnf/pacman) gefunden."
-  echo "     Manuell installieren:  ffmpeg   (und PortAudio, z.B. 'sudo apt install libportaudio2')"
-  echo "     Die Python-Installation wird fortgesetzt; Aufnahme braucht ffmpeg + PortAudio."
+  warn "No supported package manager (apt/dnf/pacman) found."
+  echo "     Install manually:  ffmpeg   (and PortAudio, e.g. 'sudo apt install libportaudio2')"
+  echo "     The Python installation continues; capture needs ffmpeg + PortAudio."
 elif (( ${#PKGS[@]} > 0 )); then
-  printf '  Es werden installiert (via %s): %s\n' "$PKG" "${PKGS[*]}"
+  printf '  Will install (via %s): %s\n' "$PKG" "${PKGS[*]}"
   if [[ -t 0 ]]; then
-    read -r -p "  Jetzt installieren? [j/N] " ans
-    [[ "${ans:-}" =~ ^[jJyY] ]] || { warn "Abgebrochen - Systempakete wurden NICHT installiert."; exit 1; }
+    read -r -p "  Install now? [y/N] " ans
+    [[ "${ans:-}" =~ ^[yYjJ] ]] || { warn "Aborted - system packages were NOT installed."; exit 1; }
   else
-    echo "  (kein interaktives Terminal -> installiere automatisch)"
+    echo "  (no interactive terminal -> installing automatically)"
   fi
   case "$PKG" in
     apt)    sudo apt-get update -y && sudo apt-get install -y --no-install-recommends "${PKGS[@]}" ;;
     dnf)    sudo dnf install -y "${PKGS[@]}" ;;
     pacman) sudo pacman -Sy --noconfirm --needed "${PKGS[@]}" ;;
   esac
-  ok "Systempakete installiert."
+  ok "System packages installed."
 else
-  ok "Systempakete: ffmpeg + PortAudio vorhanden."
+  ok "System packages: ffmpeg + PortAudio present."
 fi
 echo
 
 # --------------------------------------------------------------- 2) uv (Python 3.12)
-step "Prüfe uv (bereit stellt Python 3.12) ..."
+step "Checking uv (provides Python 3.12) ..."
 if ! have uv; then
-  echo "  uv nicht gefunden -> installiere uv (user-level, ohne sudo) ..."
+  echo "  uv not found -> installing uv (user-level, no sudo) ..."
   curl -LsSf https://astral.sh/uv/install.sh | sh
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-  have uv || { err "uv-Installation fehlgeschlagen. Manuell: https://docs.astral.sh/uv/"; exit 1; }
+  have uv || { err "uv installation failed. Manually: https://docs.astral.sh/uv/"; exit 1; }
 fi
-ok "uv: $(uv --version 2>/dev/null || echo 'verfügbar')"
+ok "uv: $(uv --version 2>/dev/null || echo 'available')"
 echo
 
 # --------------------------------------------------------------- 3) Python deps (base)
-step "Installiere Python-Abhängigkeiten (uv sync, nur Basis) ..."
+step "Installing Python dependencies (uv sync, base only) ..."
 export UV_PYTHON_DOWNLOADS=automatic   # non-interactive managed CPython 3.12 if needed
 uv sync
-ok "Python-Abhängigkeiten installiert (Basis)."
+ok "Python dependencies installed (base)."
 echo
 
 # --------------------------------------------------------------- 4) web UI (prebuilt)
-step "Prüfe Web-UI (vorgebaut in ui/dist) ..."
+step "Checking web UI (prebuilt in ui/dist) ..."
 if [[ -f "$ROOT/ui/dist/index.html" ]]; then
-  ok "Web-UI vorhanden (ui/dist)."
+  ok "Web UI present (ui/dist)."
 elif have npm; then
-  warn "ui/dist fehlt -> baue die UI (npm) ..."
+  warn "ui/dist missing -> building the UI (npm) ..."
   ( cd ui && npm ci && npm run build )
-  [[ -f "$ROOT/ui/dist/index.html" ]] || { err "UI-Build fehlgeschlagen."; exit 1; }
-  ok "Web-UI gebaut."
+  [[ -f "$ROOT/ui/dist/index.html" ]] || { err "UI build failed."; exit 1; }
+  ok "Web UI built."
 else
-  err "ui/dist/index.html fehlt und es ist kein Node/npm zum Bauen vorhanden."
-  echo "     Bitte das Repository vollständig klonen (ui/dist wird mitgeliefert)."
+  err "ui/dist/index.html is missing and there is no Node/npm to build it."
+  echo "     Please clone the full repository (ui/dist is included)."
   exit 1
 fi
 echo
 
 # --------------------------------------------------------------- 5) init
-step "Initialisiere Speicher + Datenbank ..."
+step "Initializing storage + database ..."
 uv run meeting-core init
 echo
 
 # --------------------------------------------------------------- 6) optional models
 if (( WITH_MODELS )); then
-  step "Lade Live-ASR-Modell herunter (benötigt Netzwerk) ..."
+  step "Downloading the live ASR model (requires network) ..."
   if uv run meeting-core download-model --confirm; then
-    ok "ASR-Modell bereit."
+    ok "ASR model ready."
   else
-    warn "Modell-Download fehlgeschlagen. Nachholen:  uv run meeting-core download-model --confirm"
+    warn "Model download failed. Retry:  uv run meeting-core download-model --confirm"
   fi
   echo
 fi
 
 # --------------------------------------------------------------- 7) start
 if (( NO_START )); then
-  ok "Installation + Initialisierung abgeschlossen (Dienst nicht gestartet)."
-  echo "  Starten mit:   uv run meeting-core daemon"
+  ok "Installation + initialization complete (service not started)."
+  echo "  Start with:   uv run meeting-core daemon"
 else
-  step "Starte den Dienst (daemon) ..."
+  step "Starting the service (daemon) ..."
   if uv run meeting-core daemon; then
     sleep 1
-    ok "Dienst gestartet."
+    ok "Service started."
   else
-    warn "Dienst-Start nicht bestätigt. Manuell:  uv run meeting-core daemon"
+    warn "Service start not confirmed. Manually:  uv run meeting-core daemon"
   fi
   echo
 fi
 
-ok "Bereit. Öffne im Browser:  http://127.0.0.1:8765/"
-echo "  Stopp:            uv run meeting-core stop"
+ok "Ready. Open in your browser:  http://127.0.0.1:8765/"
+echo "  Stop:             uv run meeting-core stop"

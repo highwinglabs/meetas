@@ -1275,6 +1275,10 @@ export function setActiveLang(lang: UiLang): void {
   active = lang;
 }
 
+export function activeLang(): UiLang {
+  return active;
+}
+
 export function msg(key: MessageKey, vars?: Record<string, string | number>): string {
   return translate(active, key, vars);
 }

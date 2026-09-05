@@ -229,6 +229,25 @@ Notes:
 - Build path: `<project>/ui/dist` (override with `MA_UI_DIST`).
 - The UI stores nothing itself; all state lives in the core (SQLite + filesystem).
 
+## Language (de/en)
+
+There are **three independent language axes** — do not conflate them:
+
+1. **Interface language** (what you read in the UI) — German (default) or English,
+   switchable in the UI (persisted in the browser). It controls labels, status text,
+   dates, and messages. The UI also sends it as an `Accept-Language` header, so the
+   core localises **error messages** and the **consent notice** to match. With no
+   header (e.g. plain `curl` / other clients) the core answers in German.
+2. **Transcription language** (what ASR recognises) — auto-detected per meeting
+   (de/en), or forced globally via `MA_ASR_LANGUAGE` or per meeting in the UI.
+3. **Analysis language** (what the LLM writes) — chosen per meeting
+   (`analysis.output_lang`), independent of the other two.
+
+Switching the interface language never changes what is transcribed or analysed; it
+only changes how the app is *displayed* and how the core phrases its messages to you.
+Exports are written in the **analysis/transcription language** of the meeting, not in
+the interface language.
+
 ---
 
 ## Typical workflow

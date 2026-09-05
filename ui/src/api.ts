@@ -4,7 +4,7 @@ import type {
   RagAnswer, SearchHit, Speaker, Tag, Task, TaskOverview, ChatTurn,
   AppSettings, AudioEnhancementProfile, ModelSpec, Project, UploadSession,
 } from "./types";
-import { msg } from "./i18n/messages";
+import { msg, activeLang } from "./i18n/messages";
 
 // Same-origin by default (the core serves this UI). Override with VITE_API_BASE
 // only if you host the UI on a different origin than the core.
@@ -28,11 +28,16 @@ interface Health {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  // Send the UI surface language so the core localises the error `detail` and
+  // the consent text for this client. This is independent of the transcription
+  // and analysis content language (those are set per meeting, not per client).
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Accept-Language": activeLang(),
+    ...((init?.headers ?? {}) as Record<string, string>),
+  };
   try {
-    res = await fetch(BASE + path, {
-      headers: { "Content-Type": "application/json" },
-      ...init,
-    });
+    res = await fetch(BASE + path, { ...init, headers });
   } catch {
     throw new ApiError(0, msg("api.noConnection"));
   }

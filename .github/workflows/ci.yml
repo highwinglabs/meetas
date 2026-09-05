@@ -62,6 +62,12 @@ jobs:
         working-directory: ui
         run: npm ci
 
+      # German/English key parity: every UI string must exist in both languages
+      # and the German source must not contain accidental non-De/En characters.
+      - name: i18n parity check
+        working-directory: ui
+        run: npm run i18n:check
+
       # Runs `tsc --noEmit && vite build` (strict typecheck + production bundle).
       - name: Build
         working-directory: ui

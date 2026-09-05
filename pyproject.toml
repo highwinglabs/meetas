@@ -1,7 +1,7 @@
 [project]
 name = "meeting-assistant"
 version = "0.1.0"
-description = "Local, privacy-first meeting assistant (Phase 1: capture & persistence core)"
+description = "Local, privacy-first meeting assistant: capture, transcription, AI analysis, projects and tasks (de/en)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.110",
