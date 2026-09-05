@@ -118,6 +118,10 @@ class Config:
     quality_asr_model: str = "small"
     asr_compute_type: str = "int8"  # CPU-efficient quantization
     asr_language: Optional[str] = None  # None = auto-detect per meeting (de/en expected)
+    # Output language for the LLM analysis. "wie_transkript" (default) writes in
+    # the transcript's own language; "de"/"en" force that language. This is the
+    # *global seed* for new meetings; each meeting stores its own choice.
+    analysis_language: str = "wie_transkript"
     default_speaker_mode: str = "off"  # off | after (manual) | live (opt-in)
     default_analysis_template: str = "standard"
     default_summary_model: str = "qwen3.5:4b"
@@ -361,6 +365,7 @@ class Config:
         cfg.quality_asr_model = _env_str("QUALITY_ASR_MODEL", cfg.quality_asr_model)
         cfg.asr_compute_type = _env_str("ASR_COMPUTE", cfg.asr_compute_type)
         cfg.asr_language = _env_str("ASR_LANGUAGE", cfg.asr_language or "") or None
+        cfg.analysis_language = _env_str("ANALYSIS_LANGUAGE", cfg.analysis_language) or "wie_transkript"
         cfg.default_speaker_mode = _env_str("SPEAKER_MODE", cfg.default_speaker_mode)
         cfg.default_analysis_template = _env_str("ANALYSIS_TEMPLATE", cfg.default_analysis_template)
         cfg.default_summary_model = _env_str("SUMMARY_MODEL", cfg.default_summary_model)
@@ -494,6 +499,9 @@ class Config:
                 not isinstance(cfg.asr_language, str)
                 or cfg.asr_language not in {"", "auto", "de", "en"}):
             cfg.asr_language = defaults.asr_language
+        if (not isinstance(cfg.analysis_language, str)
+                or cfg.analysis_language not in {"wie_transkript", "de", "en"}):
+            cfg.analysis_language = defaults.analysis_language
         if cfg.diarization_backend not in {"numpy", "pyannote"}:
             cfg.diarization_backend = defaults.diarization_backend
         if cfg.input_device_index is not None:

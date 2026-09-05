@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 
+from core.analysis.schema import NOT_GIVEN
 from core.llm.base import LLMEngine, LLMError, LLMResult
 from core.llm.output import visible_answer
 
@@ -49,7 +50,7 @@ def build_context(hits: list[dict], max_chars: int = 12000) -> str:
     blocks: list[str] = []
     total = 0
     for i, h in enumerate(hits, start=1):
-        speaker = h.get("speaker_id") or "nicht angegeben"
+        speaker = h.get("speaker_id") or NOT_GIVEN
         if h.get("source_kind") == "document":
             source = f"Datei: {h.get('file_name') or h.get('meeting_title') or '?'}"
             if h.get("locator"):

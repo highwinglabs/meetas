@@ -43,15 +43,17 @@ def build_prompt(
     lang: Optional[str] = None,
     kind: str = "summary",
     override_system: Optional[str] = None,
+    output_lang: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Return ``(system_prompt, user_prompt)`` for the structured JSON analysis.
 
     ``segments`` is a sequence of ``(start_s, end_s, speaker_id, text)`` in
     playback order. The user prompt carries positional ``S<n>`` segment ids so
-    the model can (and must) cite real segments as sources.
+    the model can (and must) cite real segments as sources. ``output_lang`` adds
+    an explicit instruction to write all text content in that language.
     """
     rows = _trim(schema.to_seg_rows(segments))
-    return (override_system or schema.SYSTEM_PROMPT,
+    return (override_system or schema.system_prompt(lang, output_lang),
             schema.build_user_prompt(title, rows, lang))
 
 
@@ -138,7 +140,7 @@ class AnalysisProcessor:
             return _finish_cancelled()
 
         valid_ids = schema.segment_ids(rows)
-        system_prompt = override_system or schema.SYSTEM_PROMPT
+        system_prompt = override_system or schema.system_prompt(lang)
         user_prompt = schema.build_user_prompt(title, rows, lang)
 
         # 3) The (slow) LLM call happens outside any open DB session.

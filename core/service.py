@@ -207,8 +207,8 @@ class MeetingService(
             "live_transcription", "live_asr_model", "live_fallback_asr_model",
             "asr_model", "quality_asr_model",
             "language", "speaker_mode", "analysis_enabled", "analysis_model",
-            "analysis_template", "embeddings_enabled", "source", "system_device_id",
-            "device_name",
+            "analysis_template", "analysis_language", "embeddings_enabled",
+            "source", "system_device_id", "device_name",
         }
         out = {k: raw[k] for k in allowed if k in raw}
         for key in {"live_transcription", "analysis_enabled", "embeddings_enabled"}:
@@ -230,6 +230,9 @@ class MeetingService(
             out.pop("speaker_mode", None)
         if out.get("language") not in (None, "", "auto", "de", "en"):
             out.pop("language", None)
+        if out.get("analysis_language") not in (
+                None, "", "wie_transkript", "de", "en"):
+            out.pop("analysis_language", None)
         return out
 
     def _meeting_settings(self, meeting_id: str) -> dict:

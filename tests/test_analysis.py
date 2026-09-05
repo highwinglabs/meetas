@@ -14,6 +14,8 @@ from core.analysis import build_prompt
 from core.analysis import schema
 from core.llm import LLMError, MockLLM, ServerBusyError
 from core.service import UnknownMeetingError
+from core.store.db import session_scope
+from core.store.models import Meeting
 
 NINE = ["kurzfassung", "themen", "entscheidungen", "aufgaben", "offene_fragen",
         "naechste_schritte", "risiken", "wichtige_fakten", "follow_ups"]
@@ -23,6 +25,16 @@ def _with_transcript(finalize_meeting, **kw):
     svc, mid = finalize_meeting(**kw)
     svc.transcribe(mid)  # mock ASR -> 2 deterministic segments
     return svc, mid
+
+
+def _set_meeting_settings(svc, mid, **settings):
+    """Merge per-meeting settings into a stored meeting (production read path)."""
+    with session_scope() as s:
+        m = s.get(Meeting, mid)
+        existing = json.loads(m.settings_json or "{}")
+        existing.update(settings)
+        m.settings_json = json.dumps(existing, ensure_ascii=False)
+        s.commit()
 
 
 def test_analyze_stores_summary(config, finalize_meeting):
@@ -54,6 +66,30 @@ def test_analyze_stores_summary(config, finalize_meeting):
     assert analyze_job and analyze_job[0]["status"] == "done"
 
 
+def test_analyze_applies_per_meeting_output_language(config, finalize_meeting):
+    """The per-meeting analysis_language flows into the sent system prompt.
+
+    The mock transcript is German, so a German meeting with "wie_transkript"
+    writes in German, while analysis_language="en" switches the OUTPUT to
+    English without changing how the transcript is described."""
+    # German transcript + explicit English output -> English directive, German transcript.
+    mock = MockLLM()
+    svc, mid = _with_transcript(finalize_meeting, llm_engine=mock)
+    _set_meeting_settings(svc, mid, analysis_language="en")
+    out = svc.analyze(mid)
+    assert out["status"] == "done"
+    assert "auf Englisch aus" in mock.last_system
+    assert "deutsches Transkript" in mock.last_system
+
+    # "wie_transkript" resolves to the transcript language (German).
+    mock2 = MockLLM()
+    svc2, mid2 = _with_transcript(finalize_meeting, llm_engine=mock2)
+    _set_meeting_settings(svc2, mid2, analysis_language="wie_transkript")
+    svc2.analyze(mid2)
+    assert "auf Deutsch aus" in mock2.last_system
+    assert "deutsches Transkript" in mock2.last_system
+
+
 def test_analyze_prompt_is_structured(config):
     system, user = build_prompt(
         "Sprint-Planung",
@@ -72,6 +108,77 @@ def test_analyze_prompt_is_structured(config):
     for key in NINE:
         assert key in user
     assert "segment_id" in user and "sprecher" in user and "timestamp" in user
+
+
+def test_analyze_system_prompt_transcript_language(config):
+    """The transcript-language descriptor is the ONLY prompt part that adapts.
+
+    German (or absent/unknown) must stay byte-identical to the historical prompt
+    (no migration, no behaviour change); a known foreign language swaps exactly
+    the single phrase naming the transcript's language and nothing else.
+    """
+    base = schema.SYSTEM_PROMPT
+    # Absent / empty / German / regional German / unknown all fall back to base.
+    for lang in (None, "", "de", "de-DE", "xx-XX"):
+        assert schema.system_prompt(lang) == base
+    # English names the transcript "englisches" and drops the German descriptor.
+    en = schema.system_prompt("en")
+    assert "englisches Transkript" in en
+    assert "deutsches Transkript" not in en
+    # Reverting that single phrase restores the base prompt: proof that ONLY the
+    # descriptor changed and the rest of the (German) prompt is untouched.
+    assert en.replace("englisches Transkript", "deutsches Transkript") == base
+    # The German sentinel is preserved: no output-language switch is implied.
+    assert "nicht angegeben" in en
+    # Template variants keep their emphasis suffix on top of the same base.
+    audit_en = schema.system_prompt_for_template("audit", "en")
+    assert "englisches Transkript" in audit_en
+    assert audit_en.startswith(en)  # base (English) prompt first, suffix appended
+    assert "Risiken" in audit_en
+
+
+def test_resolve_output_lang():
+    """wie_transkript/empty/auto follow the transcript; a concrete code wins."""
+    # "match the transcript": concrete transcript language is used.
+    assert schema.resolve_output_lang(None, "de") == "de"
+    assert schema.resolve_output_lang("", "en") == "en"
+    assert schema.resolve_output_lang("auto", "fr") == "fr"
+    assert schema.resolve_output_lang("wie_transkript", "de-DE") == "de-DE"
+    # "match the transcript" but transcript unknown -> no concrete output language.
+    assert schema.resolve_output_lang("wie_transkript", None) is None
+    assert schema.resolve_output_lang("wie_transkript", "") is None
+    # A fixed choice overrides the transcript language entirely.
+    assert schema.resolve_output_lang("de", None) == "de"
+    assert schema.resolve_output_lang("en", "de") == "en"
+    # Unknown/blank choice degrades to the transcript language (or None).
+    assert schema.resolve_output_lang("  ", None) is None
+
+
+def test_analyze_system_prompt_output_language():
+    """The explicit output-language directive is the only other prompt part that
+    adapts, and it appears ONLY when a concrete output language is resolved."""
+    base = schema.SYSTEM_PROMPT
+    # No output language -> byte-identical to the historical prompt.
+    assert schema.system_prompt("de", None) == base
+    assert schema.system_prompt("en", None) == schema.system_prompt("en")
+    # "wie_transkript" + German transcript -> explicit German output.
+    de = schema.system_prompt("de", "de")
+    assert de != base
+    assert "auf Deutsch aus" in de
+    # "wie_transkript" + English transcript -> explicit English output.
+    assert "auf Englisch aus" in schema.system_prompt("en", "en")
+    # A concrete output choice is independent of the transcript language: an
+    # English transcript can still be summarised in German (and vice versa).
+    cross = schema.system_prompt("en", "de")
+    assert "englisches Transkript" in cross
+    assert "auf Deutsch aus" in cross
+    assert "auf Englisch aus" not in cross
+    # The no-invention contract survives the directive.
+    assert "nicht angegeben" in de
+    # Template variants keep their emphasis suffix on top of the same prompt.
+    audit = schema.system_prompt_for_template("audit", "de", "en")
+    assert audit.startswith(schema.system_prompt("de", "en"))
+    assert "Risiken" in audit
 
 
 def test_analyze_idempotent_updates_single_row(config, finalize_meeting):

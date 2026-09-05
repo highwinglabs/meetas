@@ -95,7 +95,7 @@ def _task_display_status(task: Task) -> str:
     if task.status == "erledigt":
         return "erledigt"
     due = str(task.due_date or "").strip()
-    if not due or due.lower() in {"nicht angegeben", "n/a", "-"}:
+    if schema.is_missing(due):
         return "ohne_deadline"
     try:
         due_day = datetime.fromisoformat(due.replace("Z", "+00:00")).date()

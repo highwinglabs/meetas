@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from sqlalchemy import delete, func, or_, select
+from core.analysis.schema import NOT_GIVEN
 from core.tasks import STATUSES as TASK_STATUSES, extract_tasks
 from core.store.db import session_scope
 from core.store.models import Meeting, Task, TaskHistory, Project, utcnow
@@ -111,8 +112,8 @@ class TasksMixin:
                 if meeting is not None and meeting.project_id not in (None, project_id):
                     raise ValueError("Meeting und Projekt der Aufgabe gehören nicht zusammen.")
             task = Task(meeting_id=meeting_id, project_id=project_id, text=text,
-                        responsible=(responsible or "").strip() or "nicht angegeben",
-                        due_date=(due_date or "").strip() or "nicht angegeben",
+                        responsible=(responsible or "").strip() or NOT_GIVEN,
+                        due_date=(due_date or "").strip() or NOT_GIVEN,
                         status="offen", source_segment_id=None,
                         source_analysis_id=None)
             s.add(task)
@@ -145,7 +146,7 @@ class TasksMixin:
                                       new_value=status))
                 t.status = status
             if owner is not None:
-                new_owner = owner.strip() or "nicht angegeben"
+                new_owner = owner.strip() or NOT_GIVEN
                 if t.responsible != new_owner:
                     s.add(TaskHistory(task_id=t.id, meeting_id=t.meeting_id,
                                       field="responsible", old_value=t.responsible,
@@ -161,7 +162,7 @@ class TasksMixin:
                                       new_value=new_text))
                     t.text = new_text
             if deadline is not None:
-                new_deadline = deadline.strip() or "nicht angegeben"
+                new_deadline = deadline.strip() or NOT_GIVEN
                 if t.due_date != new_deadline:
                     s.add(TaskHistory(task_id=t.id, meeting_id=t.meeting_id,
                                       field="deadline", old_value=t.due_date,

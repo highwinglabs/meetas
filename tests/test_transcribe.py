@@ -119,3 +119,44 @@ def _finalize(config, make_service):
     svc._sessions[mid].wait_done(timeout=10)
     svc.stop(mid)
     return svc, mid
+
+
+class _RecordingASREngine(MockASREngine):
+    """Records the language each transcribe() call received."""
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.seen_languages: list[str | None] = []
+
+    def transcribe(self, audio_path, language: str | None = None):
+        self.seen_languages.append(language)
+        return super().transcribe(audio_path, language)
+
+
+def test_transcribe_honours_per_meeting_language(config, make_service):
+    """A manual (re)transcribe without an explicit language must honour the
+    per-meeting choice made at recording start, not silently auto-detect."""
+    engine = _RecordingASREngine()
+    svc = make_service(asr_engine=engine)
+    mid = svc.start_meeting(title="t", source="mic", settings={"language": "en"})
+    svc._sessions[mid].wait_done(timeout=10)
+    svc.stop(mid)
+
+    out = svc.transcribe(mid)  # no explicit language
+    assert out["status"] == "done"
+    assert engine.seen_languages[-1] == "en"
+
+    # An explicit request still wins over the stored per-meeting choice.
+    svc.transcribe(mid, language="de")
+    assert engine.seen_languages[-1] == "de"
+
+
+def test_transcribe_auto_when_no_per_meeting_language(config, make_service):
+    """A meeting whose stored language is "auto" keeps auto-detection (None)."""
+    engine = _RecordingASREngine()
+    svc = make_service(asr_engine=engine)
+    mid = svc.start_meeting(title="t", source="mic", settings={"language": "auto"})
+    svc._sessions[mid].wait_done(timeout=10)
+    svc.stop(mid)
+    svc.transcribe(mid)
+    assert engine.seen_languages[-1] is None

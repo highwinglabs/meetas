@@ -6,7 +6,7 @@ import { Badge, Note } from "./ui";
 
 const LIVE = new Set(["recording", "paused"]);
 type UploadInfo = { id: string; filename?: string; received_size: number; total_size: number; progress: number; status: string; error?: string | null };
-const fallback: AppSettings = { asr_model: "small", live_asr_model: "parakeet-tdt-0.6b-v3-int8", live_fallback_asr_model: "small", quality_asr_model: "small", asr_language: "auto", default_speaker_mode: "off", default_analysis_template: "standard", default_summary_model: "qwen3.5:4b", quality_analysis_model: "qwen3.8-27b-q4kxl", live_transcription: false, speaker_diarization: false, auto_pipeline: false, auto_analyze: false, rag_enabled: true, system_audio_enabled: false, mic_enhancement_enabled: false, llm_base_url: "http://127.0.0.1:8081/v1", ollama_base_url: "http://127.0.0.1:11434/v1", llm_model: "qwen3.8-27b-q4kxl", network_allowed: false };
+const fallback: AppSettings = { asr_model: "small", live_asr_model: "parakeet-tdt-0.6b-v3-int8", live_fallback_asr_model: "small", quality_asr_model: "small", asr_language: "auto", analysis_language: "wie_transkript", default_speaker_mode: "off", default_analysis_template: "standard", default_summary_model: "qwen3.5:4b", quality_analysis_model: "qwen3.8-27b-q4kxl", live_transcription: false, speaker_diarization: false, auto_pipeline: false, auto_analyze: false, rag_enabled: true, system_audio_enabled: false, mic_enhancement_enabled: false, llm_base_url: "http://127.0.0.1:8081/v1", ollama_base_url: "http://127.0.0.1:11434/v1", llm_model: "qwen3.8-27b-q4kxl", network_allowed: false };
 
 export default function RecordingPanel({ consentOk, onNeedConsent }: { consentOk: boolean; onNeedConsent: () => void }) {
   const [active, setActive] = useState<MeetingListItem | null>(null);
@@ -24,6 +24,7 @@ export default function RecordingPanel({ consentOk, onNeedConsent }: { consentOk
   const [liveModel, setLiveModel] = useState(fallback.live_asr_model);
   const [finalModel, setFinalModel] = useState(fallback.quality_asr_model);
   const [language, setLanguage] = useState("auto");
+  const [analysisLanguage, setAnalysisLanguage] = useState("wie_transkript");
   const [speakerMode, setSpeakerMode] = useState<"off" | "live" | "after">("off");
   const [analysisEnabled, setAnalysisEnabled] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -81,6 +82,7 @@ export default function RecordingPanel({ consentOk, onNeedConsent }: { consentOk
     setLiveModel(installedAsrModels.some((m) => m.id === s.live_asr_model) ? s.live_asr_model : (installedAsrModels[0]?.id ?? s.live_asr_model));
     setFinalModel(installedAsrModels.some((m) => m.id === final) ? final : (installedAsrModels[0]?.id ?? final));
     setLanguage(s.asr_language || "auto");
+    setAnalysisLanguage(s.analysis_language || "wie_transkript");
     setSpeakerMode(s.default_speaker_mode);
     setAnalysisEnabled(s.auto_analyze);
     setAnalysisModel(installedLlmModels.some((m) => m.id === analysis) ? analysis : (installedLlmModels[0]?.id ?? analysis));
@@ -124,7 +126,7 @@ export default function RecordingPanel({ consentOk, onNeedConsent }: { consentOk
   }, [liveSegments, live?.live?.partial_text, followLive]);
 
 
-  const selectedSettings = () => ({ live_transcription: liveTranscription, live_asr_model: liveModel, live_fallback_asr_model: defaults.live_fallback_asr_model, quality_asr_model: finalModel, asr_model: finalModel, language, speaker_mode: speakerMode, analysis_enabled: analysisEnabled, analysis_model: analysisModel, analysis_template: defaults.default_analysis_template, ...(deviceId !== "" ? { device_name: devices.find((device) => device.id === deviceId)?.name } : {}), ...(source === "both" && systemDeviceId !== "" ? { system_device_id: systemDeviceId } : {}) });
+  const selectedSettings = () => ({ live_transcription: liveTranscription, live_asr_model: liveModel, live_fallback_asr_model: defaults.live_fallback_asr_model, quality_asr_model: finalModel, asr_model: finalModel, language, analysis_language: analysisLanguage, speaker_mode: speakerMode, analysis_enabled: analysisEnabled, analysis_model: analysisModel, analysis_template: defaults.default_analysis_template, ...(deviceId !== "" ? { device_name: devices.find((device) => device.id === deviceId)?.name } : {}), ...(source === "both" && systemDeviceId !== "" ? { system_device_id: systemDeviceId } : {}) });
   const start = async () => { setBusy(true); setError(null); setNotice(null); try { if (liveTranscription && !liveModel) throw new Error("Für Live-Text muss ein installiertes Transkriptionsmodell ausgewählt sein."); if (analysisEnabled && !analysisModel) throw new Error("Für die automatische KI-Auswertung muss ein installiertes Modell ausgewählt sein."); const dev = source === "system" ? (systemDeviceId === "" ? null : systemDeviceId) : (deviceId === "" ? null : deviceId); await api.startMeeting(title.trim() || "Neues Meeting", source, dev, consentOk, projectId || null, selectedSettings()); setNotice("Aufnahme gestartet."); await findActive(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } };
   const pause = async () => { if (active) try { await api.pause(active.id); } catch (e) { setError((e as Error).message); } };
   const resume = async () => { if (active) try { await api.resume(active.id); } catch (e) { setError((e as Error).message); } };
@@ -210,6 +212,7 @@ export default function RecordingPanel({ consentOk, onNeedConsent }: { consentOk
           <div className="settings-grid">
             <label className="field option-card"><span>Vollständiges Transkript</span><select value={finalModel} onChange={(e) => setFinalModel(e.target.value)}>{installedAsrModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
             <label className="field option-card"><span>Sprache</span><select value={language} onChange={(e) => setLanguage(e.target.value)}><option value="auto">Automatisch</option><option value="de">Deutsch</option><option value="en">Englisch</option></select></label>
+            <label className="field option-card"><span>Sprache der KI-Auswertung</span><select value={analysisLanguage} onChange={(e) => setAnalysisLanguage(e.target.value)}><option value="wie_transkript">Wie das Transkript</option><option value="de">Deutsch</option><option value="en">Englisch</option></select></label>
             <label className="field option-card"><span>Sprecher erkennen</span><select value={speakerMode} onChange={(e) => setSpeakerMode(e.target.value as "off" | "live" | "after")}><option value="off">Nicht jetzt</option><option value="after">Nach dem Meeting</option><option value="live">Während des Meetings</option></select></label>
             <label className="field option-card"><span>KI-Zusammenfassung</span><select value={analysisEnabled ? "on" : "off"} onChange={(e) => setAnalysisEnabled(e.target.value === "on")}><option value="off">Später manuell</option><option value="on">Nach dem Meeting</option></select></label>
             <label className="field option-card"><span>KI-Modell für die Auswertung</span><select value={analysisModel} onChange={(e) => setAnalysisModel(e.target.value)}>{installedLlmModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>

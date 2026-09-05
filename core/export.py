@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from core.analysis import schema as analysis_schema
+from core.analysis.schema import NOT_GIVEN
 from core.config import Config, get_config
 from core.logging_setup import get_logger
 from core.store.db import session_scope
@@ -53,7 +54,7 @@ def _fmt_ts(seconds: float | None) -> str:
 
 def _fmt_dt(dt) -> str:
     if not dt:
-        return "nicht angegeben"
+        return NOT_GIVEN
     aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
     return aware.astimezone(ZoneInfo("Europe/Berlin")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -95,7 +96,7 @@ def _load(meeting_id: str, include_analysis: bool = True) -> dict:
 
 
 def _speaker(x: dict) -> str:
-    return x["speaker_id"] or "nicht angegeben"
+    return x["speaker_id"] or NOT_GIVEN
 
 
 def _header_block(data: dict) -> list[str]:
@@ -104,8 +105,8 @@ def _header_block(data: dict) -> list[str]:
         f"- **Status:** {m['status']}",
         f"- **Zeitraum:** {_fmt_dt(m['start_at'])} → {_fmt_dt(m['end_at'])}"
         + (f" ({round(m['duration_s'],1)} s)" if m['duration_s'] else ""),
-        f"- **Sprache:** {m['lang'] or 'nicht angegeben'}",
-        f"- **Audio-Quelle:** {(rec or {}).get('original_path') or 'nicht angegeben'}",
+        f"- **Sprache:** {m['lang'] or NOT_GIVEN}",
+        f"- **Audio-Quelle:** {(rec or {}).get('original_path') or NOT_GIVEN}",
         f"- **Segmente:** {len(data['segments'])}",
     ]
     if data.get("tags"):
@@ -131,7 +132,7 @@ def render_markdown(data: dict, include_transcript: bool = True,
             lines.append(f"| {_fmt_ts(x['start_s'])} | {speaker} | {text} `[seg:{x['id']}]` |")
     lines += ["", "## Quellenverweise", ""]
     for x in data["segments"]:
-        audio = x["audio_ref"] or "nicht angegeben"
+        audio = x["audio_ref"] or NOT_GIVEN
         lines.append(f"- `[seg:{x['id']}]` {_fmt_ts(x['start_s'])}–{_fmt_ts(x['end_s'])} · "
                      f"{audio} · „{x['text']}“")
     return "\n".join(lines) + "\n"
@@ -156,7 +157,7 @@ def render_txt(data: dict, include_transcript: bool = True,
             lines.append(f"[{_fmt_ts(x['start_s'])}] {_speaker(x)}: {x['text']}  (seg:{x['id']})")
     lines += ["", "Quellenverweise", "-" * 15]
     for x in data["segments"]:
-        audio = x["audio_ref"] or "nicht angegeben"
+        audio = x["audio_ref"] or NOT_GIVEN
         lines.append(f"seg:{x['id']}  {_fmt_ts(x['start_s'])}-{_fmt_ts(x['end_s'])}  {audio}")
     return "\n".join(lines) + "\n"
 
@@ -216,7 +217,7 @@ def render_html(data: dict, include_transcript: bool = True,
         parts.append("</table>")
     parts.append("<h2>Quellenverweise</h2><ul>")
     for x in data["segments"]:
-        audio = x["audio_ref"] or "nicht angegeben"
+        audio = x["audio_ref"] or NOT_GIVEN
         parts.append(f"<li><code>[seg:{x['id']}]</code> "
                      f"{_fmt_ts(x['start_s'])}–{_fmt_ts(x['end_s'])} · {esc(audio)}</li>")
     parts += ["</ul>", "</body></html>"]
@@ -271,7 +272,7 @@ def _build_docx(data: dict, path: Path, md: str,
             d.add_paragraph(f"[{_fmt_ts(x['start_s'])}] {_speaker(x)}: {x['text']}  (seg:{x['id']})")
         d.add_heading("Quellenverweise", level=1)
         for x in data["segments"]:
-            audio = x["audio_ref"] or "nicht angegeben"
+            audio = x["audio_ref"] or NOT_GIVEN
             d.add_paragraph(f"seg:{x['id']}  {_fmt_ts(x['start_s'])}-{_fmt_ts(x['end_s'])}  {audio}")
     d.save(str(path))
     return True

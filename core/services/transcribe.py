@@ -25,6 +25,13 @@ class TranscriptionMixin:
                 meeting = s.get(Meeting, meeting_id)
                 if meeting is None or meeting.deleted_at is not None:
                     raise UnknownMeetingError(meeting_id)
+                # An explicit request wins; otherwise honour the per-meeting
+                # language chosen at recording start so a manual (re)transcribe
+                # does not silently switch to auto-detection. A stored
+                # "auto"/empty still means auto-detect.
+                if language in (None, "", "auto"):
+                    language = self._decode_settings(
+                        meeting.settings_json).get("language")
             if language in ("", "auto"):
                 language = None
             engine = self._asr_engine(model_name)

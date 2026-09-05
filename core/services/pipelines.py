@@ -31,9 +31,18 @@ class PipelineMixin:
             meeting = s.get(Meeting, meeting_id)
             if meeting is None or meeting.deleted_at is not None:
                 raise UnknownMeetingError(meeting_id)
+            meeting_lang = meeting.lang
+            # The per-meeting analysis-language choice decides whether the LLM
+            # must write in the transcript language ("wie_transkript") or in a
+            # fixed one (de/en). Resolved here so the directive goes into the
+            # system prompt that is actually sent.
+            output_lang = schema.resolve_output_lang(
+                self._decode_settings(meeting.settings_json).get("analysis_language"),
+                meeting_lang)
         engine = (self._llm_providers.engine_for_model(model_name)
                   if model_name else self._llm_engine())
-        system = override_system or schema.system_prompt_for_template(template)
+        system = override_system or schema.system_prompt_for_template(
+            template, lang=meeting_lang, output_lang=output_lang)
         with self._analysis_lock:
             token = self._analysis_tokens.get(meeting_id, 0) + 1
             self._analysis_tokens[meeting_id] = token

@@ -14,7 +14,7 @@ import re
 
 from sqlalchemy import func, select
 
-from core.analysis.schema import extract_json
+from core.analysis.schema import NOT_GIVEN, extract_json, is_missing
 from core.logging_setup import get_logger
 from core.store.models import Analysis, Meeting, Task, TranscriptSegment
 
@@ -79,10 +79,10 @@ def extract_tasks(session, meeting_id: str) -> dict:
         text = (item.get("text") or "").strip()
         if not text:
             continue
-        responsible = (item.get("verantwortlich") or "").strip() or "nicht angegeben"
-        due_date = (item.get("deadline") or "").strip() or "nicht angegeben"
-        if due_date in {"n/a", "-"}:
-            due_date = "nicht angegeben"
+        responsible = (item.get("verantwortlich") or "").strip() or NOT_GIVEN
+        due_date = (item.get("deadline") or "").strip() or NOT_GIVEN
+        if is_missing(due_date):
+            due_date = NOT_GIVEN
 
         # First valid S<n> citation -> real source segment (best effort).
         source_segment = None

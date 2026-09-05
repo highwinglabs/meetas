@@ -130,8 +130,8 @@ class AnalyticsMixin:
                             continue
                         entry = {"meeting": m.title, "text": text}
                         if key == "aufgaben" and isinstance(e, dict):
-                            entry["verantwortlich"] = e.get("verantwortlich", "nicht angegeben")
-                            entry["deadline"] = e.get("deadline", "nicht angegeben")
+                            entry["verantwortlich"] = e.get("verantwortlich", schema.NOT_GIVEN)
+                            entry["deadline"] = e.get("deadline", schema.NOT_GIVEN)
                         combined[key].append(entry)
         return {
             "period": {"since": since, "until": until},

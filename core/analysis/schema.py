@@ -20,7 +20,37 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 NOT_GIVEN = "nicht angegeben"
 
+# Every value that means "not specified" in stored/produced analysis data. The
+# legacy German sentinel dominates; the short forms the UI/API may also emit are
+# recognised too. Defined in ONE place so missing-value detection never drifts.
+LEGACY_MISSING = {"", "n/a", "-", "nicht angegeben"}
+
+
+def is_missing(value: Any) -> bool:
+    """Return True when ``value`` represents "not specified".
+
+    Central predicate for missing analysis values: ``None``, empty or
+    whitespace-only strings, and any of the legacy sentinel forms in
+    :data:`LEGACY_MISSING` (compared case-insensitively). Anything else --
+    including real names, dates and numbers -- is *not* missing, so a genuine
+    value is never mistaken for an absent one.
+    """
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    return value.strip().lower() in LEGACY_MISSING
+
+
 # (json_key, German title, extra_fields). Order is the canonical output order.
+#
+# The ``json_key`` values are **stable, language-neutral technical identifiers**,
+# not display text. They are the on-disk contract shared by the stored
+# ``Analysis.content`` JSON, the UI (``ui/src/types.ts``), task extraction
+# (``core/tasks.py``), analytics, export and the mock LLM. Do NOT rename them:
+# renaming would silently invalidate every stored analysis and desync all those
+# readers. The human-readable names live in the German ``title`` column and are
+# the only localisable part of this table.
 SECTIONS: List[Tuple[str, str, Tuple[str, ...]]] = [
     ("kurzfassung", "Kurzfassung", ()),
     ("themen", "Themen", ()),
@@ -47,7 +77,98 @@ SYSTEM_PROMPT = (
 )
 
 
-def system_prompt_for_template(template: Optional[str]) -> str:
+# German adjectives describing the transcript's own language inside the
+# (German-language) system prompt. Only this descriptor adapts to the meeting
+# language; the prompt itself stays German. Unknown or absent languages fall
+# back to the historical German default, so German analyses are unchanged.
+_TRANSCRIPT_LANG_ADJ = {
+    "de": "deutsches",
+    "en": "englisches",
+    "fr": "französisches",
+    "es": "spanisches",
+    "it": "italienisches",
+    "pl": "polnisches",
+}
+
+
+def _transcript_lang_adj(lang: Optional[str]) -> str:
+    key = (lang or "").strip().lower()
+    if not key:
+        return "deutsches"
+    code = key.split("-", 1)[0].split("_", 1)[0]
+    return _TRANSCRIPT_LANG_ADJ.get(code, "deutsches")
+
+
+# German display names for the *output* language directive. Only languages a
+# local model reliably writes are offered; anything else resolves to no
+# directive (historical implicit-German behaviour).
+_OUTPUT_LANG_NAMES = {
+    "de": "Deutsch",
+    "en": "Englisch",
+    "fr": "Französisch",
+    "es": "Spanisch",
+    "it": "Italienisch",
+    "pl": "Polnisch",
+}
+
+
+def _output_lang_name(code: Optional[str]) -> Optional[str]:
+    key = (code or "").strip().lower()
+    if not key:
+        return None
+    c = key.split("-", 1)[0].split("_", 1)[0]
+    return _OUTPUT_LANG_NAMES.get(c)
+
+
+def resolve_output_lang(analysis_language: Optional[str],
+                        transcript_lang: Optional[str]) -> Optional[str]:
+    """Resolve the concrete language the analysis *output* must use.
+
+    ``analysis_language`` is the per-meeting choice. ``"wie_transkript"`` (or
+    empty / ``None`` / ``"auto"``) means "match the transcript"; a concrete code
+    such as ``"de"`` or ``"en"`` forces that language. Returns a stripped code,
+    or ``None`` when no concrete language is known (transcript unknown and the
+    choice is "wie_transkript") -- in that case the prompt carries no output
+    directive and the historical implicit-German behaviour applies.
+    """
+    raw = (analysis_language or "").strip()
+    if raw in ("", "auto", "wie_transkript"):
+        return (transcript_lang or "").strip() or None
+    return raw or None
+
+
+def _output_lang_directive(output_lang: Optional[str]) -> str:
+    """Explicit output-language instruction, or empty for the implicit default."""
+    name = _output_lang_name(output_lang)
+    if not name:
+        return ""
+    return (
+        " Gib ALLE Textinhalte (Kurzfassung, Themen, Entscheidungen, Aufgaben, "
+        "Offene Fragen, Naechste Schritte, Risiken, Wichtige Fakten, Follow-ups "
+        "sowie jedes 'text'-Feld) auf " + name
+        + " aus. Uebersetze den Inhalt frei, halte aber Namen, Zahlen, Zitate "
+        "und alle Quellenangaben exakt bei."
+    )
+
+
+def system_prompt(lang: Optional[str] = None,
+                  output_lang: Optional[str] = None) -> str:
+    """Base analysis prompt with the transcript language made explicit.
+
+    Only the single phrase naming the transcript's language changes. For a
+    German (or unknown/absent) language this returns :data:`SYSTEM_PROMPT`
+    unchanged, so existing German behaviour is preserved exactly. When a
+    concrete ``output_lang`` is given, an explicit instruction to write all text
+    content in that language is appended; otherwise the prompt is unchanged.
+    """
+    adj = _transcript_lang_adj(lang)
+    base = SYSTEM_PROMPT.replace("deutsches Transkript", f"{adj} Transkript")
+    return base + _output_lang_directive(output_lang)
+
+
+def system_prompt_for_template(template: Optional[str],
+                               lang: Optional[str] = None,
+                               output_lang: Optional[str] = None) -> str:
     """Return a safe built-in analysis style without allowing fact rules to be
     replaced by a UI label.
 
@@ -60,7 +181,7 @@ def system_prompt_for_template(template: Optional[str]) -> str:
         "audit": " Lege besonderen Wert auf Risiken, Nachweise, offene Punkte und konkrete Zusagen.",
         "action_items": " Lege besonderen Wert auf Aufgaben, Verantwortliche, Fristen und deren Quellen.",
     }.get(key, "")
-    return SYSTEM_PROMPT + suffix
+    return system_prompt(lang, output_lang) + suffix
 
 FIX_SYSTEM_PROMPT = (
     "Du korrigierst fehlerhaftes JSON. Du gibst AUSSCHLIESSLICH ein gueltiges, "

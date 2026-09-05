@@ -244,6 +244,7 @@ export default function SettingsPanel() {
         <h3 className="settings-subsection">Sprache und Sprecher</h3>
         <div className="settings-grid">
           <label className="field"><span>Sprache</span><select value={settings.asr_language} onChange={(e) => set("asr_language", e.target.value)}><option value="auto">Automatisch</option><option value="de">Deutsch</option><option value="en">Englisch</option></select></label>
+          <label className="field"><span>Sprache der KI-Auswertung</span><select value={settings.analysis_language ?? "wie_transkript"} onChange={(e) => set("analysis_language", e.target.value)}><option value="wie_transkript">Wie das Transkript</option><option value="de">Deutsch</option><option value="en">Englisch</option></select></label>
           <label className="field"><span>Sprecher erkennen</span><select value={settings.default_speaker_mode} onChange={(e) => set("default_speaker_mode", e.target.value as AppSettings["default_speaker_mode"])}><option value="off">Aus</option><option value="after">Nach dem Meeting</option><option value="live">Während des Meetings</option></select></label>
           <label className="field"><span>Vorlage für KI-Auswertungen</span><select value={settings.default_analysis_template} onChange={(e) => set("default_analysis_template", e.target.value)}><option value="standard">Standard</option><option value="compact">Kurz und kompakt</option><option value="audit">Risiken und Nachweise</option><option value="action_items">Aufgaben und Fristen</option></select></label>
         </div>

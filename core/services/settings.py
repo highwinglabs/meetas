@@ -63,6 +63,7 @@ class SettingsMixin:
                 "live_fallback_asr_model": cfg.live_fallback_asr_model,
                 "quality_asr_model": cfg.quality_asr_model,
                 "asr_language": cfg.asr_language or "auto",
+                "analysis_language": cfg.analysis_language,
                 "default_speaker_mode": cfg.default_speaker_mode,
                 "default_analysis_template": cfg.default_analysis_template,
                 "default_summary_model": cfg.default_summary_model,
@@ -113,7 +114,7 @@ class SettingsMixin:
                     "LLM-Endpunkte erlaubt.")
         allowed = {
             "asr_model", "live_asr_model", "live_fallback_asr_model",
-            "quality_asr_model", "asr_language",
+            "quality_asr_model", "asr_language", "analysis_language",
             "default_speaker_mode", "default_analysis_template", "default_summary_model",
             "quality_analysis_model", "live_transcription", "speaker_diarization",
             "live_window_s", "live_period_s", "live_tail_s",
@@ -160,6 +161,9 @@ class SettingsMixin:
                 raise ValueError("Ungültige Vorlage für KI-Auswertungen.")
             if key == "asr_language" and value not in (None, "", "auto", "de", "en"):
                 raise ValueError("Ungültige Sprache.")
+            if key == "analysis_language" and value not in (
+                    None, "", "wie_transkript", "de", "en"):
+                raise ValueError("Ungültige Auswertungssprache.")
             if key in {"live_transcription", "speaker_diarization", "auto_pipeline", "auto_analyze",
                        "embeddings_enabled", "rag_enabled", "system_audio_enabled",
                        "network_allowed", "mic_enhancement_enabled"}:

@@ -19,10 +19,11 @@ function Entry({ e, isTask }: { e: AnalysisEntry; isTask: boolean }) {
 // Renders the structured 9-area analysis. The `content` field is the validated
 // JSON produced by the LLM (see core/analysis/schema.py). We fall back to the
 // rendered markdown if parsing fails.
-export default function AnalysisView({ content, markdown, model }: {
+export default function AnalysisView({ content, markdown, model, outputLanguage }: {
   content: string;
   markdown: string;
   model: string;
+  outputLanguage?: string | null;
 }) {
   let parsed: AnalysisData | null = null;
   let failed: string | null = null;
@@ -43,7 +44,7 @@ export default function AnalysisView({ content, markdown, model }: {
 
   return (
     <div className="analysis">
-      <div className="analysis-model dim">Modell: {model}</div>
+      <div className="analysis-model dim">Modell: {model}{outputLanguage ? ` · Sprache: ${outputLanguage}` : ""}</div>
       {SECTIONS.map((s) => {
         const entries = (parsed[s.key] ?? []) as AnalysisEntry[];
         const isTask = s.key === "aufgaben";

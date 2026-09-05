@@ -265,6 +265,7 @@ export interface AppSettings {
   live_fallback_asr_model: string;
   quality_asr_model: string;
   asr_language: string;
+  analysis_language?: string;
   default_speaker_mode: "off" | "live" | "after";
   default_analysis_template: string;
   default_summary_model: string;
