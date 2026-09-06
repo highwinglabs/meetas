@@ -11,6 +11,10 @@ web UI is a pure client of that API and is served statically by the core itself.
 > access** (`network_allowed=false`) and **no cloud**. The API listens on loopback
 > only. Model downloads are optional and always require an explicit confirmation.
 
+<p align="center">
+  <img src="docs/images/screenshot.png" alt="Meetas web UI — new meeting recording screen" width="80%">
+</p>
+
 ---
 
 ## Features
