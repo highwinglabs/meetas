@@ -1,6 +1,8 @@
 """Transcription pipeline: audio -> segments in DB -> FTS, resumable/idempotent."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
@@ -130,6 +132,12 @@ def test_asr_prefers_16k_copy(config, make_service):
         from sqlalchemy import select as sel
         from core.store.models import Recording
         rec = s.scalar(sel(Recording).where(Recording.meeting_id == mid))
+        # Precondition: assembly only writes the 16k copy when the capture rate
+        # differs from 16 kHz (headless CI captures at the 16 kHz default). Create
+        # it explicitly so the test stays deterministic on any host.
+        copy = Path(rec.original_path).parent / "original_16k.wav"
+        if not copy.is_file():
+            copy.write_bytes(Path(rec.original_path).read_bytes())
         audio = pick_asr_audio(rec.original_path)
     assert audio.name == "original_16k.wav"
 
