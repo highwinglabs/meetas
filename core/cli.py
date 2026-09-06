@@ -76,8 +76,11 @@ def cmd_daemon(args) -> int:
         print(f"Already running: PID {pid}")
         return 0
     # The grandchild's stderr goes to a log file, otherwise a late crash
-    # (e.g. after double-fork) dies silently with /dev/null as stderr.
-    daemonize(stderr_to=config.logs_dir / "daemon.err.log")
+    # (e.g. after double-fork) dies silently with /dev/null as stderr.  The
+    # first parent also verifies the daemon actually comes up within a short
+    # grace period and reports this log path if it does not (L7).
+    log_path = config.logs_dir / "daemon.err.log"
+    daemonize(stderr_to=log_path, config=config, log_path=log_path)
     from core.api.app import run_server
     run_server(config, use_migrations=not getattr(args, "no_migrations", False))
     return 0

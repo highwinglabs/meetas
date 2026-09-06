@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from core.audio.capture import CaptureSession, CaptureStatus
-from core.audio.stream import SyntheticSource
+from core.audio.stream import BoundedChunkQueue, SyntheticSource
 from core.config import get_config
 
 
@@ -113,3 +113,16 @@ def test_mic_enhancement_can_be_disabled(config, tmp_path):
         s.feed(block)
     s.finish()
     assert len(received) == 1
+
+
+def test_bounded_chunk_queue_drops_oldest_on_overflow():
+    # Regression (L3): a stalling consumer must not let the audio queue grow
+    # without limit.  A bounded queue drops the oldest block on overflow and
+    # keeps the newest blocks in FIFO order, so memory stays bounded.
+    q = BoundedChunkQueue(block_ms=10, buffer_s=0.1)  # maxsize == 10
+    assert q.maxsize == 10
+    for i in range(15):
+        q.put(i)
+    assert q.qsize() == 10
+    drained = [q.get(timeout=1) for _ in range(10)]
+    assert drained == list(range(5, 15))

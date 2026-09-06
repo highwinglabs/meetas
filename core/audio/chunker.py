@@ -1,13 +1,17 @@
 """Crash-safe chunk writer.
 
-Every 1-second chunk is written as a complete WAV file and an index line is
-appended + fsynced. The index is the single source of truth: a torn/partial
-file that has no index line is simply dropped during recovery (bounded loss
-<= 1 second). The original is assembled later from indexed chunks only.
+Every 1-second chunk is written as a complete WAV file, fsynced, and only
+then an index line is appended + fsynced. The index is the single source of
+truth: a torn/partial file that has no index line is simply dropped during
+recovery (bounded loss <= 1 second). The original is assembled later from
+indexed chunks only. Because the chunk bytes are durable *before* the index
+line, a power loss can never leave an index entry pointing at a chunk whose
+on-disk data is still only in the page cache.
 """
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import struct
@@ -22,29 +26,46 @@ from core.logging_setup import get_logger
 log = get_logger("ma.audio.chunker")
 
 
-def _write_wav(path: Path, samples: np.ndarray, sample_rate: int, channels: int) -> int:
-    """Write float32 (n, channels) [-1,1] as 16-bit PCM WAV. Returns byte size."""
+def _write_wav(path: Path, samples: np.ndarray, sample_rate: int, channels: int) -> tuple[int, str]:
+    """Write float32 (n, channels) [-1,1] as 16-bit PCM WAV.
+
+    Returns ``(size, sha256)``. The exact on-disk bytes are assembled in
+    memory first (L17), so the sha256 is computed from those in-memory bytes
+    instead of re-reading the file back from disk after the write.
+    """
     samples = np.ascontiguousarray(samples, dtype=np.float32)
     if samples.ndim == 1:
         samples = samples.reshape(-1, 1)
     n, ch = samples.shape
     pcm = np.clip(samples, -1.0, 1.0)
     pcm = (pcm * 32767.0).astype("<i2")
+    # Assemble the exact WAV bytes in memory (L17): the on-disk file and the
+    # recorded sha256 come from the same bytes, so no post-write read-back.
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as w:
+        w.setnchannels(ch)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm.tobytes())
+    wav_bytes = buffer.getvalue()
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         path.parent.chmod(0o700)
     except OSError:
         pass
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(ch)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate)
-        w.writeframes(pcm.tobytes())
+    # Durability ordering (H2): the chunk data must be on stable storage
+    # *before* the index line referencing it is fsynced; otherwise a power
+    # loss could persist an index entry for a chunk that is still only in
+    # the page cache, and recovery would then fail the whole assembly.
+    with open(path, "wb") as handle:
+        handle.write(wav_bytes)
+        handle.flush()
+        os.fsync(handle.fileno())
     try:
         path.chmod(0o600)
     except OSError:
         pass
-    return path.stat().st_size
+    return len(wav_bytes), hashlib.sha256(wav_bytes).hexdigest()
 
 
 class ChunkWriter:
@@ -108,8 +129,7 @@ class ChunkWriter:
         dur_s = n / self.sample_rate
         file_name = f"chunk_{self.seq:06d}.wav"
         wav_path = self.chunk_dir / file_name
-        size = _write_wav(wav_path, samples, self.sample_rate, self.channels)
-        digest = hashlib.sha256(wav_path.read_bytes()).hexdigest()
+        size, digest = _write_wav(wav_path, samples, self.sample_rate, self.channels)
         entry = {
             "seq": self.seq,
             "start_s": round(start_s, 6),

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from core.services._common import UnknownMeetingError
 from core.store.db import session_scope
 from core.store.models import Analysis, MeetingTag, TranscriptSegment
 
@@ -48,6 +51,41 @@ def test_compare(make_service):
     assert r0["title"] == "Sprint Q2" and r0["n_segments"] == 1 and r0["n_tasks"] == 0
     assert "budget" in r0["tags"]
     assert r0["kurzfassung"] == ["Budget Q2 freigegeben"]
+
+
+def test_compare_all_unknown_meeting_ids_raise(make_service):
+    # L24: an all-unknown selection raises the unknown-meeting error instead of
+    # silently returning an empty comparison.
+    svc, (m1, m2) = _finalize_two(make_service)
+    with pytest.raises(UnknownMeetingError):
+        svc.compare_meetings(["nope-1", "nope-2"])
+    # an empty selection is a client error, distinct from an unknown meeting
+    with pytest.raises(ValueError):
+        svc.compare_meetings([])
+
+
+def test_compare_mixed_unknown_filters_and_reports(make_service):
+    # One bad id does not reject the whole comparison; the known one is kept.
+    svc, (m1, m2) = _finalize_two(make_service)
+    out = svc.compare_meetings([m1, "nope"])
+    assert out["n_meetings"] == 1
+    assert out["meetings"][0]["id"] == m1
+    assert out["unknown_ids"] == ["nope"]
+
+
+def test_search_hybrid_all_unknown_meeting_ids_raise(finalize_meeting):
+    # L11: none of the requested meetings exist -> explicit unknown-meeting error.
+    svc, mid = finalize_meeting()
+    with pytest.raises(UnknownMeetingError):
+        svc.search_hybrid("irrelevant", meeting_ids=["nope"])
+
+
+def test_search_hybrid_filters_unknown_keeps_known(finalize_meeting):
+    # L11: a mix of known and unknown ids filters the unknown instead of
+    # rejecting the whole query.
+    svc, mid = finalize_meeting()
+    results = svc.search_hybrid("irrelevant", meeting_ids=[mid, "nope"])
+    assert isinstance(results, list)
 
 
 def test_multi_summary(make_service):

@@ -82,3 +82,29 @@ def test_transcribe_missing_audio_raises(config):
     mf.write_bytes(b"stub")
     with pytest.raises(ASRError):
         eng.transcribe(config.audio_dir / "does_not_exist.wav")
+
+
+def test_provider_manager_caches_parakeet_engine(config, monkeypatch):
+    # L18: repeated engine() calls must reuse one ParakeetEngine instead of
+    # building a fresh instance every time; clear_cache invalidates.
+    from core.providers.manager import ProviderManager
+    monkeypatch.setattr(config, "asr_model", "parakeet-tdt-0.6b-v3-int8")
+    manager = ProviderManager(config)
+    first = manager.engine()
+    second = manager.engine()
+    assert first is second, "parakeet engine was rebuilt instead of cached"
+    manager.clear_cache()
+    third = manager.engine()
+    assert third is not first, "clear_cache did not invalidate the parakeet cache"
+
+
+def test_provider_manager_caches_default_whisper_engine(config, monkeypatch):
+    # The default faster-whisper engine is cached too (lock-guarded).
+    from core.providers.manager import ProviderManager
+    monkeypatch.setattr(config, "asr_model", "small")
+    manager = ProviderManager(config)
+    first = manager.engine()
+    assert first is manager.engine()
+    manager.clear_cache()
+    assert manager._default is None
+    assert manager.engine() is not first

@@ -20,7 +20,7 @@ import numpy as np
 
 from core.audio.assembly import assemble_original
 from core.audio.chunker import ChunkWriter
-from core.audio.enhance import MicEnhancer
+from core.audio.mic_enhancer import MicEnhancer
 from core.audio.stream import AudioSource
 from core.audio.vad import energy_rms_dbfs, is_speaking
 from core.config import Config, get_config

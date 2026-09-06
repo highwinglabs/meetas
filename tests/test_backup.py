@@ -77,6 +77,46 @@ def test_restore_confirm_swaps_db_and_makes_safety(make_service, config):
         assert s.query(Meeting).count() == 1
 
 
+def test_restore_reruns_session_guard_before_swap(make_service, config):
+    # L16: the "no active capture session" precondition is re-validated
+    # immediately before the live DB is swapped, not only at the start of the
+    # restore (the old check-then-act released its lock before the swap).
+    from core import backup as backup_mod
+    from core.services._common import ActiveMeetingError
+    svc = make_service()
+    m1 = svc.start_meeting(title="A", source="mic")
+    svc._sessions[m1].wait_done(timeout=10)
+    svc.stop(m1)
+    b = svc.create_backup(kind="db")
+    m2 = svc.start_meeting(title="B", source="mic")
+    svc._sessions[m2].wait_done(timeout=10)
+    svc.stop(m2)
+    with session_scope() as s:
+        assert s.query(Meeting).count() == 2
+
+    # A guard that fires (a session started after the initial check) must abort
+    # the restore before any file is swapped or a temp file is created.
+    def _fire() -> None:
+        raise ActiveMeetingError("session started during restore")
+    try:
+        backup_mod.restore_backup(config, b["id"], confirm=True, pre_write_guard=_fire)
+        assert False, "expected ActiveMeetingError"
+    except ActiveMeetingError:
+        pass
+    with session_scope() as s:
+        assert s.query(Meeting).count() == 2  # no swap happened
+    assert list(config.db_path.parent.glob(".restore_src_*.tmp")) == []
+
+    # A passing guard is invoked exactly once and lets the restore proceed.
+    calls = {"n": 0}
+    def _pass() -> None:
+        calls["n"] += 1
+    out = backup_mod.restore_backup(config, b["id"], confirm=True, pre_write_guard=_pass)
+    assert out["applied"] is True and calls["n"] == 1
+    with session_scope() as s:
+        assert s.query(Meeting).count() == 1  # rolled back to A's snapshot
+
+
 def test_restore_missing_backup_raises(make_service):
     svc = make_service()
     try:

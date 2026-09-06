@@ -56,6 +56,7 @@ from core.services.uploads import UploadsMixin
 from core.services._common import (  # noqa: F401
     ActiveMeetingError,
     ConsentRequiredError,
+    SpeakerMergeConflictError,
     UnknownMeetingError,
     UnknownTaskError,
     _NO_REDIRECT_OPENER,

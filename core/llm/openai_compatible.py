@@ -51,6 +51,7 @@ class OpenAICompatibleLLM(LLMEngine):
         self.timeout_s = float(getattr(config, "llm_timeout_s", 300.0) or 300.0)
         self.max_busy_retries = int(getattr(config, "llm_max_busy_retries", 10) or 0)
         self.busy_wait_s = float(getattr(config, "llm_busy_wait_s", 3.0) or 0.0)
+        self.busy_budget_s = float(getattr(config, "llm_busy_budget_s", 600.0) or 600.0)
         self.temperature = float(getattr(config, "llm_temperature", 0.2) or 0.2)
         self.max_tokens = int(getattr(config, "llm_max_tokens", 0) or 0)
         self._http = http_client
@@ -138,6 +139,7 @@ class OpenAICompatibleLLM(LLMEngine):
         payload = self._build_payload(prompt, system, temperature, max_tokens)
         attempts = self.max_busy_retries + 1
         last_busy = ""
+        budget_started: Optional[float] = None
         for attempt in range(1, attempts + 1):
             if cancel_event is not None and cancel_event.is_set():
                 raise LLMCancelledError("Analyse gestoppt.")
@@ -159,11 +161,24 @@ class OpenAICompatibleLLM(LLMEngine):
             if resp.status_code in _BUSY_STATUS:
                 last_busy = resp.text[:200]
                 if attempt < attempts:
+                    if budget_started is None:
+                        budget_started = time.monotonic()
+                    elapsed = time.monotonic() - budget_started
+                    remaining = self.busy_budget_s - elapsed
+                    if remaining <= 0:
+                        raise ServerBusyError(
+                            f"LLM-Server ist (noch) belegt; das Wartebudget von "
+                            f"{self.busy_budget_s:.0f}s ist nach {elapsed:.0f}s "
+                            f"ersch\u00f6pft. Bitte in wenigen Augenblicken erneut "
+                            f"versuchen. [{self._display_endpoint()}]"
+                        )
+                    wait = min(self.busy_wait_s, remaining)
                     log.info(
-                        "llm_busy status=%s attempt=%d/%d wait=%.1fs",
-                        resp.status_code, attempt, attempts, self.busy_wait_s,
+                        "llm_busy status=%s attempt=%d/%d wait=%.1fs budget_left=%.0fs",
+                        resp.status_code, attempt, attempts, wait,
+                        remaining - wait,
                     )
-                    self._sleep(self.busy_wait_s)
+                    self._sleep(wait)
                     continue
                 raise ServerBusyError(
                     f"LLM-Server ist (noch) belegt und hat nach {attempts} Versuchen "

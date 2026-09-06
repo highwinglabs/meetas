@@ -101,6 +101,37 @@ def test_busy_forever_raises_server_busy(config):
     assert state["n"] == 4
 
 
+def test_busy_budget_stops_retry_loop_before_retries_exhausted(config):
+    """M4: even with a large retry count, the busy-retry loop must give up
+    after the overall wall-clock budget instead of blocking the worker for
+    hours (huge retries*wait combinations used to allow that)."""
+    state = {"n": 0}
+
+    def handler(req):
+        state["n"] += 1
+        return httpx.Response(503, text="busy")
+
+    config.llm_busy_wait_s = 0.1          # larger than the budget
+    config.llm_max_busy_retries = 100
+    config.llm_busy_budget_s = 0.05
+    transport = httpx.MockTransport(handler)
+    import time as _time
+
+    start = _time.monotonic()
+    eng = OpenAICompatibleLLM(
+        base_url=BASE_URL, model="test-model", config=config,
+        http_client=httpx.Client(transport=transport),
+    )
+    with pytest.raises(ServerBusyError) as exc:
+        eng.complete("p")
+    elapsed = _time.monotonic() - start
+    assert "Wartebudget" in str(exc.value)
+    # Only a handful of attempts, far fewer than the 101 configured;
+    # total blocking time stays in the neighbourhood of the budget.
+    assert state["n"] <= 5
+    assert elapsed < 2.0
+
+
 def test_429_also_treated_as_busy(config):
     state = {"n": 0}
 
@@ -174,3 +205,29 @@ def test_mock_llm_busy_and_fail(config):
         MockLLM(busy=True).complete("p")
     with pytest.raises(LLMError):
         MockLLM(fail=True).complete("p")
+
+
+def test_manager_caches_engine_and_closes_client_on_clear(config):
+    # L10: the per-role engine is cached (one build), and clear_cache closes the
+    # replaced engine's httpx client instead of leaking it.
+    from core.llm.manager import LLMProviderManager
+    manager = LLMProviderManager(config)
+    first = manager.engine("analyse")
+    assert manager.engine("analyse") is first, "engine was rebuilt instead of cached"
+    client = first._client()  # materialize a real httpx.Client on the engine
+    assert isinstance(client, httpx.Client) and client.is_closed is False
+    manager.clear_cache()
+    assert client.is_closed is True, "clear_cache did not close the httpx client"
+    assert manager._cache == {}
+    assert manager._default is None
+    assert manager.engine("analyse") is not first, "a fresh engine must be built after clear"
+
+
+def test_manager_engine_for_model_is_cached(config):
+    from core.llm.manager import LLMProviderManager
+    manager = LLMProviderManager(config)
+    assert manager.engine_for_model("m1") is manager.engine_for_model("m1")
+    # A different model gets its own cached engine.
+    assert manager.engine_for_model("m2") is not manager.engine_for_model("m1")
+    manager.clear_cache()
+    assert manager._cache == {}

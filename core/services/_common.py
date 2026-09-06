@@ -12,7 +12,25 @@ from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from core.analysis import schema
+from core.config import get_config
 from core.store.models import Task
+
+
+def _display_zone() -> ZoneInfo:
+    """IANA timezone for user-facing date rendering (L12).
+
+    Reads the configurable ``timezone`` (MA_TIMEZONE). An unset or invalid
+    value falls back to Europe/Berlin so a bad setting never breaks rendering.
+    """
+    try:
+        name = get_config().timezone or "Europe/Berlin"
+    except Exception:  # noqa: BLE001 - a missing/broken config must not crash
+        name = "Europe/Berlin"
+    try:
+        return ZoneInfo(name)
+    except Exception:  # noqa: BLE001 - invalid IANA name -> default
+        return ZoneInfo("Europe/Berlin")
+
 
 class ConsentRequiredError(RuntimeError):
     pass
@@ -20,6 +38,21 @@ class ConsentRequiredError(RuntimeError):
 
 class ActiveMeetingError(RuntimeError):
     pass
+
+
+class SpeakerMergeConflictError(RuntimeError):
+    """Renaming a speaker onto an existing speaker name would silently merge
+    the two speakers (L13). Raised when the caller did not pass confirm_merge.
+    """
+
+    def __init__(self, current: str, target: str, existing_segments: int) -> None:
+        self.current = current
+        self.target = target
+        self.existing_segments = existing_segments
+        super().__init__(
+            f"Umbenennen von {current!r} auf {target!r} würde zwei Sprecher "
+            f"zusammenfassen ({existing_segments} Segmente existieren bereits "
+            f"unter {target!r}). Bestätige mit confirm_merge=true.")
 
 
 class UnknownMeetingError(KeyError):
@@ -52,11 +85,11 @@ def utc_iso(value: datetime | None) -> str | None:
 
 
 def berlin_date(value: datetime | None) -> str | None:
-    """Return the calendar date in the UI's local Berlin timezone."""
+    """Return the calendar date in the configured display timezone."""
     if value is None:
         return None
     aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-    return aware.astimezone(ZoneInfo("Europe/Berlin")).date().isoformat()
+    return aware.astimezone(_display_zone()).date().isoformat()
 
 
 def parse_utc_datetime(value: str | None) -> datetime | None:
@@ -101,8 +134,9 @@ def _task_display_status(task: Task) -> str:
         due_day = datetime.fromisoformat(due.replace("Z", "+00:00")).date()
     except ValueError:
         return task.status
-    berlin_today = datetime.now(ZoneInfo("Europe/Berlin")).date()
-    return "ueberfaellig" if due_day < berlin_today else (task.status or "offen")
+    # L12: overdue is judged against "today" in the configured display zone.
+    display_today = datetime.now(_display_zone()).date()
+    return "ueberfaellig" if due_day < display_today else (task.status or "offen")
 
 
 def _analysis_markdown(content: Optional[str], lang: Optional[str] = None) -> str:

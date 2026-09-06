@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from core.config import Config
 from core.search.embeddings import EmbeddingEngine
 from core.search.vectorstore import vector_search
+from core.services._common import UnknownMeetingError
 from core.store import fts
 from core.store.models import Meeting, Project, TranscriptSegment
 
@@ -54,11 +55,16 @@ def hybrid_search(session: Session, query: str, engine: EmbeddingEngine,
     # The REST client uses an empty list to mean "no meeting filter"; a
     # non-empty list is the explicit selection.
     if meeting_ids:
-        allowed_meetings = set(meeting_ids)
+        requested = set(meeting_ids)
         existing = set(session.scalars(select(Meeting.id).where(
-            Meeting.id.in_(allowed_meetings), Meeting.deleted_at.is_(None))).all())
-        if existing != allowed_meetings:
-            raise KeyError(next(iter(allowed_meetings - existing)))
+            Meeting.id.in_(requested), Meeting.deleted_at.is_(None))).all())
+        if not existing:
+            # L11: none of the requested meetings exist -> raise the specific
+            # unknown-meeting error instead of a bare KeyError / empty result.
+            raise UnknownMeetingError(next(iter(meeting_ids)))
+        # Filter out unknown/deleted ids so one bad id does not reject the
+        # whole query; the search proceeds over the ids that do exist.
+        allowed_meetings = existing
     if project_id is not None:
         project = session.get(Project, project_id)
         if project is None or project.deleted_at is not None:

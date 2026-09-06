@@ -106,7 +106,13 @@ _DOCS_REVISION = "d4f7a2b9c6e1"
 # Keep this in sync with the actual migration graph.  The previous value was
 # an intermediate revision, causing a fully materialized legacy DB to replay
 # later migrations unnecessarily (and potentially collide with indexes).
-_HEAD_REVISION = "e5a7c9d1f3b2"
+_HEAD_REVISION = "c2d4e6f8a1b3"
+# Revision right before the analysis unique-index migration; legacy DBs
+# missing the index are stamped here so the dedup + index migration runs.
+_PRE_ANALYSIS_UNIQUE_REVISION = "f3a9c7e5b2d4"
+# Revision right before the Task.meeting_id SET NULL migration; legacy DBs
+# whose task FK still cascades are stamped here so that rebuild runs (L6).
+_PRE_TASK_FK_SET_NULL_REVISION = "a1b2c3d4e5f6"
 _INITIAL_TABLES = frozenset({
     "consent_event", "meeting", "provider_configuration",
     "processing_job", "recording", "transcript_segment",
@@ -141,6 +147,39 @@ def _has_column(db_path: Path, table: str, column: str) -> bool:
     conn = sqlite3.connect(str(db_path))
     try:
         return column in {row[1] for row in conn.execute(f"PRAGMA table_info({ident})")}
+    finally:
+        conn.close()
+
+
+def _has_index(db_path: Path, index_name: str) -> bool:
+    if not db_path.exists():
+        return False
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+            (index_name,)).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def _task_meeting_fk_is_set_null(db_path: Path) -> bool:
+    """True when task.meeting_id -> meeting.id uses ON DELETE SET NULL.
+
+    Used by the legacy-stamp heuristic: a ``create_all`` database built before
+    the Task FK rebuild migration still carries ON DELETE CASCADE, so it must
+    be stamped one revision behind to let that migration run (L6).
+    """
+    if not db_path.exists():
+        return False
+    conn = sqlite3.connect(str(db_path))
+    try:
+        for row in conn.execute('PRAGMA foreign_key_list("task")'):
+            # (id, seq, table, from, to, on_update, on_delete, match)
+            if row[2] == "meeting" and row[3] == "meeting_id":
+                return row[6] == "SET NULL"
+        return False
     finally:
         conn.close()
 
@@ -186,6 +225,16 @@ def _legacy_stamp_revision(db_path: Path) -> str | None:
             return _TASK_LIFECYCLE_REVISION
         if not _has_column(db_path, "project_file", "deleted_at"):
             return _DOCS_REVISION
+        # A create_all database built before the analysis unique-index
+        # migration lacks the index (and may hold duplicate analysis rows);
+        # stamp one revision behind so the dedup + index migration runs.
+        if not _has_index(db_path, "uq_analysis_meeting_kind"):
+            return _PRE_ANALYSIS_UNIQUE_REVISION
+        # A create_all database built after the analysis index migration but
+        # before the Task FK rebuild still cascades task.meeting_id; stamp one
+        # revision behind so the SET NULL rebuild runs instead of being skipped.
+        if not _task_meeting_fk_is_set_null(db_path):
+            return _PRE_TASK_FK_SET_NULL_REVISION
         return _HEAD_REVISION
     # Older unversioned installations can contain some later tables already
     # (for example after a create_all-based development run). Stamp only the

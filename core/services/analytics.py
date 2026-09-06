@@ -11,7 +11,7 @@ from core.export import build_export, export_meeting
 from core.store.db import session_scope
 from core.store.models import Analysis, Meeting, MeetingTag, Task, TranscriptSegment
 from core.logging_setup import get_logger
-from core.services._common import utc_iso, berlin_date
+from core.services._common import utc_iso, berlin_date, UnknownMeetingError
 
 log = get_logger("ma.service")
 
@@ -64,9 +64,11 @@ class AnalyticsMixin:
             raise ValueError("mindestens ein Meeting erforderlich")
         with session_scope() as s:
             rows = []
+            unknown_ids = []
             for mid in ids:
                 m = s.get(Meeting, mid)
                 if m is None or m.deleted_at is not None:
+                    unknown_ids.append(mid)
                     continue
                 n_seg = s.scalar(select(func.count(TranscriptSegment.id)).where(
                     TranscriptSegment.meeting_id == mid)) or 0
@@ -88,7 +90,12 @@ class AnalyticsMixin:
                     "kurzfassung": [e.get("text") if isinstance(e, dict) else e
                                     for e in kf],
                 })
-        return {"meetings": rows, "n_meetings": len(rows)}
+        # L24: an all-unknown selection used to silently return an empty
+        # comparison; surface the bad id explicitly instead.
+        if not rows:
+            first = next(iter(dict.fromkeys(ids)))
+            raise UnknownMeetingError(first)
+        return {"meetings": rows, "n_meetings": len(rows), "unknown_ids": unknown_ids}
 
     def multi_summary(self, meeting_ids: list | None = None,
                       since=None, until=None) -> dict:

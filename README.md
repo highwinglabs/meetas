@@ -318,9 +318,10 @@ real analysis runs **only** when you trigger one. In **development and tests**, 
 LLM call is ever made (a mock engine or `httpx.MockTransport` is used; `MA_LLM_MOCK=true`
 forces the mock).
 
-**Busy server:** the client waits patiently (`MA_LLM_MAX_BUSY_RETRIES` × `MA_LLM_BUSY_WAIT`
-on HTTP 429/503) and otherwise returns a clear error (API `503`). An absent server also
-yields `503` with a clear message.
+**Busy server:** the client waits patiently on HTTP 429/503 — up to
+`MA_LLM_MAX_BUSY_RETRIES` retries with `MA_LLM_BUSY_WAIT` between them, capped at an
+overall wall-clock budget of `MA_LLM_BUSY_BUDGET` seconds (default 600) — and otherwise
+returns a clear error (API `503`). An absent server also yields `503` with a clear message.
 
 **Structured output:** the analysis is a **required JSON** with exactly nine sections —
 `kurzfassung`, `themen`, `entscheidungen`, `aufgaben`, `offene_fragen`,

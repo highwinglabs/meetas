@@ -20,6 +20,7 @@ import sqlite3
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from sqlalchemy import select
 
@@ -270,12 +271,19 @@ def list_backups(cfg: Config | None = None) -> list:
         return out
 
 
-def restore_backup(cfg: Config, backup_id: str, confirm: bool = False) -> dict:
+def restore_backup(cfg: Config, backup_id: str, confirm: bool = False,
+                   *, pre_write_guard: "Callable[[], None] | None" = None) -> dict:
     """Restore the live DB from a backup.
 
     Without ``confirm=True`` this is a dry-run (no changes). With it, it first
     takes a pre-restore safety snapshot, verifies the backup, then atomically
     swaps the DB file. The FTS index (same DB) is restored with it.
+
+    ``pre_write_guard`` (optional, L16) is a no-arg callable invoked immediately
+    before any file is written or swapped. A caller that checked a precondition
+    (e.g. "no active capture session") under a lock released earlier can pass a
+    guard that re-validates that precondition right before the live DB is
+    overwritten, closing the check-then-act gap. If it raises, no swap happens.
     """
     cfg = cfg or get_config()
     cfg.ensure_dirs()
@@ -298,6 +306,13 @@ def restore_backup(cfg: Config, backup_id: str, confirm: bool = False) -> dict:
     if not confirm:
         return {**plan, "applied": False,
                 "note": "Dry-Run: nichts ge&auml;ndert. Mit confirm=true ausf&uuml;hren."}
+
+    # L16: re-validate the caller precondition immediately before any file is
+    # written or the live DB is swapped. The service-level check that opened
+    # this path may have released its lock, so a session could have started
+    # since; raising here (before step 1) means no files are touched at all.
+    if pre_write_guard is not None:
+        pre_write_guard()
 
     # 1) Copy the restore source to a private temp file FIRST, outside the
     #    pruned backups dir. The pre-restore safety snapshot (step 2) triggers

@@ -158,15 +158,27 @@ def _loads(raw: str) -> dict[str, str]:
 
 
 _secret_service: SecretStore | None = None
+_secret_service_lock = threading.Lock()
 
 
 def secret_service(config: Config | None = None) -> SecretStore:
     global _secret_service
-    if _secret_service is None:
-        _secret_service = SecretStore(config or get_config())
-    elif config is not None and config is not get_config():
-        _secret_service = SecretStore(config)
-    return _secret_service
+    service = _secret_service
+    if service is not None:
+        # L23: an explicit, non-default config still rebinds the singleton, but
+        # the swap happens under the lock so concurrent callers never observe a
+        # half-constructed SecretStore.
+        if config is not None and config is not get_config():
+            with _secret_service_lock:
+                _secret_service = SecretStore(config)
+            return _secret_service
+        return service
+    with _secret_service_lock:
+        service = _secret_service
+        if service is None:
+            service = SecretStore(config or get_config())
+            _secret_service = service
+    return service
 
 
 def require_network_action(

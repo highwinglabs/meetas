@@ -5,6 +5,7 @@ import threading
 from urllib.parse import urlsplit
 from core.audio.devices import list_input_devices, resolve_input_device
 from core.audio.enhancement import normalize_profiles
+from core.config import LIVE_PERIOD_S_MAX, LIVE_PERIOD_S_MIN
 from core.security.secrets import NetworkBlockedError, is_loopback_endpoint
 from core.logging_setup import get_logger
 from core.services._common import redact_endpoint
@@ -184,7 +185,7 @@ class SettingsMixin:
                 value = proposed_window
             if key == "live_period_s":
                 try:
-                    value = max(1.0, min(15.0, float(value)))
+                    value = max(LIVE_PERIOD_S_MIN, min(LIVE_PERIOD_S_MAX, float(value)))
                 except (TypeError, ValueError) as exc:
                     raise ValueError("live_period_s muss eine Zahl sein.") from exc
             if key == "live_tail_s":

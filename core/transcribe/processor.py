@@ -153,7 +153,11 @@ class TranscriptionProcessor:
                         id=seg_id, meeting_id=meeting_id,
                         start_s=seg.start_s, end_s=seg.end_s,
                         text=seg.text, raw_text=seg.raw_text or seg.text,
-                        language=detected, confidence=seg.confidence,
+                        # Per-segment language (code-switched meetings); fall
+                        # back to the overall detected language when the engine
+                        # did not report one for this segment (L5).
+                        language=seg.language or detected,
+                        confidence=seg.confidence,
                         audio_ref=audio_ref, status="vorlaeufig"))
                     snapshot.append({
                         "id": seg_id, "start_s": seg.start_s,

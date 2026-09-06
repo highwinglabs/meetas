@@ -97,3 +97,14 @@ def test_import_upload_repairs_broken_wav_header(make_service, config):
     wave_info = svc.audio_waveform(meeting_id, points=50)
     assert wave_info["duration_s"] == pytest.approx(2.0, abs=0.05)
     assert len(wave_info["peaks"]) > 0
+
+
+def test_ffmpeg_concat_line_uses_single_quote_escaping():
+    # Regression (L4): the concat list is parsed by ffmpeg, not Python, so a
+    # path containing a single quote must use ffmpeg's '' escaping rather than
+    # repr() (which switches to double quotes and backslash escapes).
+    from core.audio.assembly import _ffmpeg_concat_line
+    assert _ffmpeg_concat_line("/m/chunks/00000001.wav") == \
+        "file '/m/chunks/00000001.wav'"
+    assert _ffmpeg_concat_line("/m/O'Brien/x.wav") == \
+        "file '/m/O''Brien/x.wav'"

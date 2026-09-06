@@ -26,6 +26,20 @@ class AssemblyError(RuntimeError):
     pass
 
 
+def _ffmpeg_concat_line(path: str) -> str:
+    """A single ffmpeg concat-demuxer ``file`` line for ``path``.
+
+    The concat list is parsed by ffmpeg, not Python, so the path must use
+    ffmpeg's own single-quote escaping (a literal ``'`` becomes ``''``), not
+    :func:`repr`.  ``repr`` picks double quotes when the path contains a single
+    quote and applies backslash escapes that ffmpeg does not understand, which
+    silently corrupts paths for meetings stored under directories with quotes
+    or other special characters.
+    """
+    escaped = path.replace("'", "''")
+    return f"file '{escaped}'"
+
+
 def _meta(meeting_dir: Path) -> dict:
     p = meeting_dir / "meta.json"
     if not p.exists():
@@ -231,7 +245,7 @@ def assemble_original(meeting_dir: Path, config: Config | None = None,
     with open(concat, "w", encoding="utf-8") as f:
         for e in entries:
             chunk = e["_path"]
-            f.write(f"file {chunk.as_posix()!r}\n")
+            f.write(_ffmpeg_concat_line(chunk.as_posix()) + "\n")
 
     tmp = original.with_name("original.wav.tmp")
     try:
@@ -282,12 +296,36 @@ def _verify(meeting_dir: Path, original: Path, entries: list[dict]) -> None:
             f"Aufnahmedauer stimmt nicht (erwartet {expected:.3f}s, tatsächlich {actual:.3f}s).")
 
 
+# (meeting_dir, index mtime_ns, index size) -> chunk validation passed.
+# Re-hashing every chunk on each integrity check (the meeting-detail endpoint
+# calls this per request) costs a full SHA-256 pass over the whole recording;
+# the index only changes while a capture runs, so a passed validation stays
+# valid until the index file itself changes.
+_validation_ok_cache: dict[tuple[str, int, int], bool] = {}
+
+
 def verify_original(meeting_dir: Path, config: Config | None = None) -> dict:
-    """Return integrity info about the assembled original (for tests/UI)."""
+    """Return integrity info about the original audio (for tests/UI).
+
+    Handles both layouts: capture meetings (assembled ``original.wav`` plus
+    the ``chunks.index.jsonl`` manifest) and uploaded meetings
+    (``original.<ext>`` plus the derived ``original_16k.wav``, no chunks). For
+    uploads there is no chunk manifest to compare against, so
+    ``expected_duration_s`` / ``duration_match`` are ``None`` and the actual
+    duration is read from the 16k WAV when the original is not a readable
+    WAV (e.g. mp3).
+    """
     cfg = config or get_config()
     meeting_dir = Path(meeting_dir)
-    original = meeting_dir / "original.wav"
     writer_index = meeting_dir / "chunks.index.jsonl"
+    original = meeting_dir / "original.wav"
+    source = "capture"
+    if not original.exists() and not writer_index.exists():
+        for candidate in sorted(meeting_dir.glob("original.*")):
+            if candidate.name != "original_16k.wav" and candidate.is_file():
+                original = candidate
+                source = "upload"
+                break
     entries = []
     parse_error = None
     if writer_index.exists():
@@ -295,27 +333,57 @@ def verify_original(meeting_dir: Path, config: Config | None = None) -> dict:
             entries = _read_index(writer_index)
         except AssemblyError as exc:
             parse_error = str(exc)
-    try:
-        valid = _validated_entries(meeting_dir, entries) if entries and parse_error is None else []
-        validation_error = parse_error
-    except AssemblyError as exc:
-        valid = []
-        validation_error = str(exc)
-    try:
-        actual = _wav_duration_s(original) if original.exists() else 0.0
-        audio_error = None
-    except (OSError, wave.Error) as exc:
-        actual = 0.0
-        audio_error = str(exc)
-    expected = sum(float(e.get("dur_s", 0.0)) for e in valid)
+    valid_count = 0
+    expected = 0.0
+    validation_error = parse_error
+    if entries and parse_error is None:
+        st = writer_index.stat()
+        key = (str(meeting_dir.resolve()), st.st_mtime_ns, st.st_size)
+        if _validation_ok_cache.get(key):
+            valid_count = len(entries)
+            expected = sum(float(e.get("dur_s", 0.0)) for e in entries)
+        else:
+            try:
+                valid = _validated_entries(meeting_dir, entries)
+                valid_count = len(valid)
+                expected = sum(float(e.get("dur_s", 0.0)) for e in valid)
+                if len(_validation_ok_cache) >= 64:
+                    _validation_ok_cache.clear()
+                _validation_ok_cache[key] = True
+            except AssemblyError as exc:
+                validation_error = str(exc)
+    actual = 0.0
+    audio_error = None
+    if original.exists():
+        try:
+            actual = _wav_duration_s(original)
+        except (OSError, wave.Error):
+            if source == "upload":
+                asr_copy = meeting_dir / "original_16k.wav"
+                try:
+                    actual = _wav_duration_s(asr_copy)
+                except (OSError, wave.Error) as exc:
+                    actual = 0.0
+                    audio_error = str(exc)
+            else:
+                actual = 0.0
+                audio_error = str(exc)
+    if source == "upload":
+        expected_out = None
+        match_out = None
+    else:
+        expected_out = round(expected, 3)
+        match_out = abs(expected - actual) <= max(0.1, expected * 0.02)
     info = {
         "original_exists": original.exists(),
         "read_only": original.exists() and not os.access(original, os.W_OK),
+        "source": source,
+        "original_name": original.name,
         "chunks_indexed": len(entries),
-        "chunks_valid": len(valid),
-        "expected_duration_s": round(expected, 3),
+        "chunks_valid": valid_count,
+        "expected_duration_s": expected_out,
         "actual_duration_s": round(actual, 3),
-        "duration_match": abs(expected - actual) <= max(0.1, expected * 0.02),
+        "duration_match": match_out,
         "validation_error": validation_error or audio_error,
     }
     return info

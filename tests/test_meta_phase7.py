@@ -83,7 +83,7 @@ def test_auto_title_tags(make_service, config):
     analysis = json.dumps({
         "kurzfassung": [{"text": "Q2-Budget wird besprochen und Risiken werden genannt.",
                          "quellen": []}],
-        "agenda": [{"text": "Q2 Budget planen", "quellen": []}],
+        "themen": [{"text": "Q2 Budget planen", "quellen": []}],
         "entscheidungen": [{"text": "Budget freigegeben", "quellen": []}],
         "risiken": [{"text": "Budget ueberschreitung moeglich", "quellen": []}],
         "aufgaben": [], "offene_fragen": [],
@@ -98,6 +98,10 @@ def test_auto_title_tags(make_service, config):
     assert out["title"].startswith("Q2-Budget")
     # "budget" should surface as a tag (content word, lowercased)
     assert "budget" in out["tags"]
+    # M1: "planen" occurs only in the themen section, so it proves the
+    # themen section is actually read (the old code read a nonexistent
+    # "agenda" key and silently dropped it).
+    assert "planen" in out["tags"]
     # Idempotent: a second run adds nothing new.
     again = svc.apply_auto_title_tags(mid)
     assert again["tags_added"] == 0

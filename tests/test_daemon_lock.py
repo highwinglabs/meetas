@@ -72,3 +72,30 @@ def test_daemon_and_restart_share_no_migrations_flag():
     assert parser.parse_args(["daemon", "--no-migrations"]).no_migrations is True
     assert parser.parse_args(["restart", "--no-migrations"]).no_migrations is True
     assert getattr(parser.parse_args(["restart"]), "no_migrations", False) is False
+
+
+def test_daemon_parent_verify_detects_live_and_dead(tmp_path):
+    # L7: the first parent must not report a clean start when the grandchild
+    # crashed.  ``_parent_verify_daemon`` returns True only when the daemon has
+    # written a PID file whose process is still alive.
+    import types
+    from core.daemon import _parent_verify_daemon
+
+    # no config -> legacy fire-and-forget behavior -> assume ok
+    assert _parent_verify_daemon(None, 0.1) is True
+
+    # live PID (our own) -> daemon is up
+    live = tmp_path / "live.pid"
+    live.write_text(str(os.getpid()))
+    assert _parent_verify_daemon(types.SimpleNamespace(pid_file=live), 1.0) is True
+
+    # dead PID -> the daemon crashed before/after writing its PID
+    p = subprocess.Popen(["true"])
+    p.wait()
+    dead = tmp_path / "dead.pid"
+    dead.write_text(str(p.pid))
+    assert _parent_verify_daemon(types.SimpleNamespace(pid_file=dead), 0.3) is False
+
+    # missing PID file (crashed before writing it) -> not up
+    assert _parent_verify_daemon(
+        types.SimpleNamespace(pid_file=tmp_path / "missing.pid"), 0.3) is False

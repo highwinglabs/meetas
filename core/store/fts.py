@@ -8,6 +8,7 @@ This keeps search robust without relying on FTS external-content triggers.
 from __future__ import annotations
 
 import re
+import threading
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -18,6 +19,15 @@ log = get_logger("ma.fts")
 
 FTS_TABLE = "transcript_fts"
 
+# FTS5 support is a property of the SQLite build, not of a particular
+# connection or database file, so the (DDL-performing) probe only needs to run
+# once per process.  Memoising avoids the create/drop round-trip on every
+# search, reindex, and availability check.  The lock makes the first concurrent
+# call safe; a stale True/False can never appear because the build never changes
+# under a running process.
+_fts_probe_result: bool | None = None
+_fts_probe_lock = threading.Lock()
+
 _FTS_DDL = (
     f"CREATE VIRTUAL TABLE IF NOT EXISTS {FTS_TABLE} USING fts5("
     f"meeting_id UNINDEXED, seg_id UNINDEXED, speaker_id UNINDEXED, text, "
@@ -26,7 +36,23 @@ _FTS_DDL = (
 
 
 def fts_available(session: Session) -> bool:
-    """Probe whether the SQLite runtime supports FTS5."""
+    """Report whether the SQLite runtime supports FTS5.
+
+    The result is cached for the life of the process because it is a property
+    of the SQLite build, so the DDL probe below runs at most once.
+    """
+    global _fts_probe_result
+    if _fts_probe_result is not None:
+        return _fts_probe_result
+    with _fts_probe_lock:
+        if _fts_probe_result is not None:
+            return _fts_probe_result
+        available = _probe_fts5(session)
+        _fts_probe_result = available
+        return available
+
+
+def _probe_fts5(session: Session) -> bool:
     try:
         # Keep the probe isolated.  Rolling back the whole SQLAlchemy session
         # on an unsupported SQLite build would silently discard pending
@@ -70,6 +96,29 @@ def remove_meeting_fts(session: Session, meeting_id: str) -> int:
     res = session.execute(
         text(f"DELETE FROM {FTS_TABLE} WHERE meeting_id = :m"), {"m": meeting_id})
     return res.rowcount or 0
+
+
+def fts_needs_rebuild(session: Session) -> bool:
+    """Whether a startup reindex is required.
+
+    A full rebuild (``reindex_all``) is only needed when the FTS index is out
+    of step with the source rows, which is what a crash can leave behind: the
+    FTS row count differs from the ``transcript_segment`` count (or the index
+    table does not exist yet).  When the counts match the index is assumed
+    current and the rebuild is skipped.  Returns ``False`` when FTS5 is
+    unavailable, because ``reindex_all`` would be a no-op in that case.
+    """
+    if not fts_available(session):
+        return False
+    has_table = session.execute(text(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=:t"),
+        {"t": FTS_TABLE}).fetchone()
+    if has_table is None:
+        return True
+    fts_count = session.execute(text(f"SELECT COUNT(*) FROM {FTS_TABLE}")).scalar() or 0
+    seg_count = session.execute(text(
+        "SELECT COUNT(*) FROM transcript_segment")).scalar() or 0
+    return int(fts_count) != int(seg_count)
 
 
 def reindex_all(session: Session) -> int:

@@ -57,6 +57,42 @@ def test_list_and_rename(make_service, config):
     assert ids == ["Dr. Berger M.", "Sprecher 1", "Sprecher 1"]
 
 
+def test_rename_merge_requires_confirm(make_service, config):
+    # L13: renaming onto an existing speaker name merges the two speakers and
+    # must be explicitly confirmed.
+    from core.service import SpeakerMergeConflictError
+    svc = make_service()
+    mid = svc.start_meeting(title="T", source="mic")
+    svc._sessions[mid].wait_done(timeout=10)
+    svc.stop(mid)
+    with session_scope() as s:
+        for seg in s.query(TranscriptSegment).filter_by(meeting_id=mid):
+            s.delete(seg)
+        s.commit()
+    _seed_segments(mid, [("Sprecher 1", 0.0), ("Sprecher 2", 3.0)])
+
+    # Renaming onto a non-existing name is a plain rename (no confirm needed).
+    out = svc.rename_speaker(mid, "Sprecher 1", "Neu")
+    assert out["updated_segments"] == 1
+
+    # Renaming the other speaker onto "Neu" (an existing speaker) would merge ->
+    # refused without confirmation.
+    try:
+        svc.rename_speaker(mid, "Sprecher 2", "Neu")
+        assert False, "expected SpeakerMergeConflictError"
+    except SpeakerMergeConflictError as exc:
+        assert exc.existing_segments == 1
+
+    # With confirmation the merge proceeds and both segments share the name.
+    out2 = svc.rename_speaker(mid, "Sprecher 2", "Neu", confirm_merge=True)
+    assert out2["updated_segments"] == 1
+    with session_scope() as s:
+        ids = sorted(r[0] for r in
+                     s.query(TranscriptSegment.speaker_id)
+                     .filter_by(meeting_id=mid).all())
+    assert ids == ["Neu", "Neu"]
+
+
 def test_rename_requires_nonempty(make_service, config):
     svc = make_service()
     mid = svc.start_meeting(title="T", source="mic")

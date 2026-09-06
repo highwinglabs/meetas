@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 import time
 from pathlib import Path
 
@@ -105,15 +106,65 @@ def release_lock(config: Config) -> None:
             pass
 
 
-def daemonize(stderr_to: Path | None = None) -> None:
+# The first parent waits this long for the grandchild to reach a live state
+# (i.e. to write its PID file) before reporting success.  Long enough for the
+# grandchild to import + acquire the lock + write the PID, short enough that a
+# ``daemon`` call does not block for seconds on the happy path.
+DAEMON_STARTUP_GRACE_S = 3.0
+
+
+def _parent_verify_daemon(config: Config | None, grace_s: float) -> bool:
+    """Parent-side liveness check after the double-fork.
+
+    Returns True once the daemon has written a PID file whose process is alive
+    (it does that at the start of ``run_server``, before the slow bootstrap),
+    or False after ``grace_s`` if it never appears / is already dead.  A ``None``
+    config (e.g. direct test calls) short-circuits to True to preserve the
+    legacy "fire and forget" behavior.
+    """
+    if config is None:
+        return True
+    deadline = time.time() + max(0.0, grace_s)
+    while time.time() < deadline:
+        pid = read_pid(config)
+        if pid and pid_alive(pid):
+            return True
+        time.sleep(0.1)
+    pid = read_pid(config)
+    return bool(pid and pid_alive(pid))
+
+
+def _parent_report_failure(log_path: Path | str | None) -> None:
+    """Tell the invoking user the daemon died at startup and where to look."""
+    where = str(log_path) if log_path else "the daemon log"
+    try:
+        sys.stderr.write(
+            "Daemon did not start (no live process within the grace period).\n"
+            f"Check the daemon log: {where}\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+def daemonize(stderr_to: Path | None = None, *, config: Config | None = None,
+              log_path: Path | str | None = None,
+              grace_s: float = DAEMON_STARTUP_GRACE_S) -> None:
     """Double-fork + setsid: detach from the controlling terminal and the
     parent's process group so the process survives the UI dying.
 
     ``stderr_to`` (optional) receives the daemon's stderr instead of
     /dev/null so that crashes after the double-fork stay diagnosable.
+
+    ``config`` / ``log_path`` (optional) enable the first parent to verify the
+    grandchild actually came up: if the daemon does not write a live PID file
+    within ``grace_s`` the parent prints the log path and exits non-zero, so a
+    startup crash is not mistaken for a clean start (L7).
     """
     if os.fork() > 0:
-        os._exit(0)  # first parent exits
+        ok = _parent_verify_daemon(config, grace_s)
+        if not ok:
+            _parent_report_failure(log_path)
+        os._exit(0 if ok else 1)  # first parent exits (0 = daemon is up)
     os.setsid()
     if os.fork() > 0:
         os._exit(0)  # first child exits; grandchild is the daemon

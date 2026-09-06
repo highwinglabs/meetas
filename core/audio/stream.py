@@ -21,6 +21,58 @@ from core.logging_setup import get_logger
 
 log = get_logger("ma.audio.stream")
 
+# How much audio (in seconds) a capture queue may buffer before it starts
+# dropping the oldest block.  The PortAudio callback must never block, so a
+# stalling consumer is protected by bounding the queue instead of letting it
+# grow without limit for the whole session (L3).
+_LIVE_QUEUE_BUFFER_S = 5.0
+
+
+class BoundedChunkQueue:
+    """Bounded FIFO of audio blocks with drop-oldest overflow.
+
+    The audio-thread callback must never block (blocking would glitch the
+    device), so when the consumer stalls the queue drops its oldest block
+    rather than waiting, keeping memory bounded to roughly ``buffer_s`` of
+    audio.  A rate-limited warning makes the stall visible without flooding
+    the log.  The ``put``/``get``/``qsize`` surface matches :class:`queue.Queue`
+    so existing call sites work unchanged.
+    """
+
+    def __init__(self, block_ms: int, buffer_s: float = _LIVE_QUEUE_BUFFER_S,
+                 name: str = "live"):
+        self._q: "queue.Queue[np.ndarray | None]" = queue.Queue(
+            maxsize=max(8, int(buffer_s * 1000 / max(1, int(block_ms)))))
+        self._name = name
+        self._drops = 0
+
+    @property
+    def maxsize(self) -> int:
+        return self._q.maxsize
+
+    def put(self, item) -> None:
+        while True:
+            try:
+                self._q.put_nowait(item)
+                return
+            except queue.Full:
+                try:
+                    self._q.get_nowait()  # drop the oldest block
+                except queue.Empty:
+                    continue
+                self._drops += 1
+                if self._drops == 1 or self._drops % 100 == 0:
+                    log.warning(
+                        "audio_queue_overflow name=%s dropped_oldest=%s "
+                        "(consumer stalling; oldest block dropped to bound memory)",
+                        self._name, self._drops)
+
+    def get(self, timeout: float | None = None):
+        return self._q.get(timeout=timeout)
+
+    def qsize(self) -> int:
+        return self._q.qsize()
+
 
 def try_rates(rates: list, probe) -> int:
     """Return the first sample rate that ``probe(rate)`` accepts.
@@ -155,7 +207,7 @@ class LiveSource(AudioSource):
         self.device_id = device_id
         self.block_ms = block_ms
         self.rate_fallback = list(rate_fallback or [])
-        self._queue: "queue.Queue[np.ndarray | None]" = queue.Queue()
+        self._queue = BoundedChunkQueue(block_ms, name="live")
         self._stream = None
         self._closed = False
 
@@ -243,7 +295,8 @@ class CombinedSource(AudioSource):
         self.microphone_id = microphone_id
         self.system_id = int(system_id)
         self.block_ms = int(block_ms)
-        self._queues = (queue.Queue(), queue.Queue())
+        self._queues = (BoundedChunkQueue(self.block_ms, name="mic"),
+                        BoundedChunkQueue(self.block_ms, name="system"))
         self._streams = []
         self._closed = False
 

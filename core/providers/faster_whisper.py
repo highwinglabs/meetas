@@ -7,6 +7,7 @@ rest of the system runs without it installed.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from core.config import Config, get_config
@@ -26,6 +27,7 @@ class FasterWhisperEngine(ASREngine):
         self.device = device
         self.download_root = Path(self.config.models_dir)
         self._model = None
+        self._model_lock = threading.Lock()
 
     def _model_id(self) -> str:
         return f"Systran/faster-whisper-{self.model_name}"
@@ -86,13 +88,17 @@ class FasterWhisperEngine(ASREngine):
 
     def _load_model(self, local_files_only: bool = False):
         if self._model is None:
-            from faster_whisper import WhisperModel  # lazy heavy import
-            self.download_root.mkdir(parents=True, exist_ok=True)
-            log.info("loading ASR model=%s compute=%s device=%s local_only=%s",
-                     self.model_name, self.compute_type, self.device, local_files_only)
-            self._model = WhisperModel(
-                self.model_name, device=self.device, compute_type=self.compute_type,
-                download_root=str(self.download_root), local_files_only=local_files_only)
+            # Double-checked: only one thread pays for the expensive load; the
+            # rest wait and reuse the shared model (L9).
+            with self._model_lock:
+                if self._model is None:
+                    from faster_whisper import WhisperModel  # lazy heavy import
+                    self.download_root.mkdir(parents=True, exist_ok=True)
+                    log.info("loading ASR model=%s compute=%s device=%s local_only=%s",
+                             self.model_name, self.compute_type, self.device, local_files_only)
+                    self._model = WhisperModel(
+                        self.model_name, device=self.device, compute_type=self.compute_type,
+                        download_root=str(self.download_root), local_files_only=local_files_only)
         return self._model
 
     def transcribe(self, audio_path: Path | str,

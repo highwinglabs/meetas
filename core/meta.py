@@ -2,9 +2,9 @@
 
 No LLM, no network: the auto *title* comes from the analysis ``kurzfassung``
 (first entry, cleaned and truncated) and auto *tags* are the most frequent
-content words across the agenda / decisions / risks sections, with a small
-German stopword filter. Everything is derived strictly from the stored,
-validated analysis so nothing is invented.
+content words across the themen / decisions / risks / open-questions sections,
+with a small German stopword filter. Everything is derived strictly from the
+stored, validated analysis so nothing is invented.
 """
 from __future__ import annotations
 
@@ -12,18 +12,19 @@ import re
 from collections import Counter
 from typing import Any, Dict, List
 
-# A compact German stopword set for tag extraction (content words are kept).
+# A compact German (+ a little English) stopword set for tag extraction; each
+# entry appears exactly once (L20). Content words are kept.
 _STOPWORDS = {
     "der", "die", "das", "und", "oder", "aber", "ist", "sind", "war", "waren",
     "ein", "eine", "einen", "einem", "einer", "dem", "den", "des", "mit", "auf",
     "für", "von", "zu", "im", "in", "an", "aus", "bei", "nach", "über", "unter",
     "wird", "werden", "kann", "können", "muss", "müssen", "soll", "sollen",
-    "will", "wollen", "hat", "haben", "war", "sich", "nicht", "auch", "als",
+    "will", "wollen", "hat", "haben", "sich", "nicht", "auch", "als", "gibt",
     "am", "um", "wie", "wenn", "dass", "denn", "so", "dann", "noch", "nur",
     "sehr", "mehr", "viel", "viele", "alle", "all", "wir", "ihr", "sie", "es",
+    "bzw", "etc", "usw", "z.b", "z.b.",
     "the", "and", "that", "for", "with", "are", "was", "were", "this", "these",
-    "these", "have", "has", "had", "will", "would", "can", "could", "should",
-    "nicht", "gibt", "gibt", "bzw", "etc", "usw", "z.b", "z.b.",
+    "have", "has", "had", "would", "can", "could", "should",
 }
 
 _WORD_RE = re.compile(r"[a-zA-ZäöüÄÖÜß0-9]+")
@@ -48,8 +49,8 @@ def auto_title(analysis: Dict[str, Any]) -> str | None:
 
 
 def auto_tags(analysis: Dict[str, Any], limit: int = 6) -> List[str]:
-    """Derive up to ``limit`` tags from agenda/decisions/risks content words."""
-    sections = ("agenda", "entscheidungen", "risiken", "offene_fragen")
+    """Derive up to ``limit`` tags from themen/decisions/risks content words."""
+    sections = ("themen", "entscheidungen", "risiken", "offene_fragen")
     counter: Counter = Counter()
     for key in sections:
         for entry in analysis.get(key) or []:

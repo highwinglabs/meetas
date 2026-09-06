@@ -185,3 +185,32 @@ def test_ten_minute_feed_uses_absolute_timestamps_without_duplicates(config):
     assert len(segs) > 100
     assert starts == sorted(set(starts))
     assert all(seg.end_s > seg.start_s for seg in segs)
+
+
+def test_ring_buffer_matches_concat_reference_across_wrap(config):
+    """M5: the ring buffer must hold exactly the most recent window of audio,
+    oldest first, even after the write index has wrapped -- matching a naive
+    concatenate+evict reference bit-for-bit, without growing past the window."""
+    sr = 10
+    window = 7.0
+    max_samples = int(window * sr)
+    pipe = LiveTranscriptionPipeline(
+        meeting_id="m", asr_engine=MockLiveASREngine(),
+        sample_rate=sr, window_s=window, tail_s=0.5,
+    )
+    ref: list[float] = []
+    # feed 25 one-second chunks with distinct, recognisable values
+    for i in range(25):
+        chunk = np.full(sr, float(i), dtype=np.float32)
+        pipe.on_chunk(chunk, sr, float(i))
+        ref.extend([float(i)] * sr)
+        ref = ref[-max_samples:]  # naive concat + evict reference
+        # the ring must never grow beyond the window
+        assert pipe._ring.shape == (max_samples,)
+    with pipe._lock:
+        linearized = pipe._linearized()
+    assert len(linearized) == len(ref)
+    np.testing.assert_array_equal(linearized, np.asarray(ref, dtype=np.float32))
+    # eviction bookkeeping stays consistent: 25 s fed, 7 s window ->
+    # the window covers seconds 18..25
+    assert abs(pipe._buf_start_s - (25.0 - window)) < 1e-6

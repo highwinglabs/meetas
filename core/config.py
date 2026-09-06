@@ -88,6 +88,14 @@ def _env_float(name: str, default: float) -> float:
             return 0.0
 
 
+# Single source of truth for the live-transcription re-transcription period
+# bounds.  Both the config validation below and the settings API clamp import
+# these, so a value that is legal here is clamped the same way there (no
+# silent drift between the two validation paths).
+LIVE_PERIOD_S_MIN = 1.0
+LIVE_PERIOD_S_MAX = 15.0
+
+
 @dataclass
 class Config:
     # --- storage (all configurable) ---
@@ -194,6 +202,11 @@ class Config:
     backup_interval_hours: int = 24
     backup_retention: int = 14
 
+    # --- display --- IANA timezone used for all user-facing date rendering
+    # (meeting dates, task due/overdue, timeline buckets). Configurable via
+    # MA_TIMEZONE; falls back to Europe/Berlin when unset or invalid (L12).
+    timezone: str = "Europe/Berlin"
+
     # --- LLM (Phase 3) --- one already-running local OpenAI-compatible server
     # (e.g. llama.cpp /v1). We point at it; we never start a second LLM or
     # model server, and no network is used. Real analysis only runs when the
@@ -212,6 +225,10 @@ class Config:
     llm_timeout_s: float = 300.0  # inference can be slow on CPU
     llm_max_busy_retries: int = 10  # how often to wait/retry while the server is busy
     llm_busy_wait_s: float = 3.0  # pause between busy retries
+    # Overall wall-clock budget (requests + waits) for the busy-retry loop.
+    # Guards against huge llm_max_busy_retries * llm_busy_wait_s combinations
+    # that could otherwise pin a worker thread for hours.
+    llm_busy_budget_s: float = 600.0
 
     # --- Phase 3: model profiles (swappable, no hardcoding) ---
     # Each capability (role) can point at a different local model/endpoint. A role
@@ -392,6 +409,10 @@ class Config:
         cfg.llm_timeout_s = _env_float("LLM_TIMEOUT", cfg.llm_timeout_s)
         cfg.llm_max_busy_retries = _env_int("LLM_MAX_BUSY_RETRIES", cfg.llm_max_busy_retries)
         cfg.llm_busy_wait_s = _env_float("LLM_BUSY_WAIT", cfg.llm_busy_wait_s)
+        cfg.llm_busy_budget_s = _env_float("LLM_BUSY_BUDGET", cfg.llm_busy_budget_s)
+        # Display: configurable IANA timezone (falls back to Europe/Berlin if
+        # unset or invalid; see `timezone` field and `_display_zone()`).
+        cfg.timezone = _env_str("TIMEZONE", cfg.timezone)
         # Phase 2
         cfg.system_audio_enabled = _env_bool("SYSTEM_AUDIO", cfg.system_audio_enabled)
         cfg.mic_enhancement_enabled = _env_bool("MIC_ENHANCEMENT", cfg.mic_enhancement_enabled)
@@ -449,11 +470,12 @@ class Config:
         bounded_int("pipeline_max_retries", 0, 20)
         bounded_float("chunk_seconds", 0.05, 60.0)
         bounded_float("live_window_s", 6.0, 60.0)
-        bounded_float("live_period_s", 0.2, 15.0)
+        bounded_float("live_period_s", LIVE_PERIOD_S_MIN, LIVE_PERIOD_S_MAX)
         bounded_float("live_tail_s", 0.5, 10.0)
         bounded_float("llm_temperature", 0.0, 2.0)
         bounded_float("llm_timeout_s", 1.0, 86_400.0)
         bounded_float("llm_busy_wait_s", 0.0, 300.0)
+        bounded_float("llm_busy_budget_s", 5.0, 86_400.0)
         if cfg.live_tail_s >= cfg.live_window_s:
             cfg.live_tail_s = min(float(defaults.live_tail_s), cfg.live_window_s / 2.0)
         if not isinstance(cfg.capture_rate_fallback, (list, tuple)):

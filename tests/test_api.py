@@ -215,6 +215,31 @@ def test_live_window_settings_are_validated_before_update(client):
     assert response.json()["live_tail_s"] == 3.0
 
 
+def test_live_period_bounds_are_shared_between_config_and_settings(client, monkeypatch):
+    # Regression (L14): the settings API clamp and the config/env validation
+    # must agree on the live_period_s bounds, so a value that is legal in one
+    # path is clamped identically in the other (no silent drift).
+    from core.config import Config, LIVE_PERIOD_S_MIN, LIVE_PERIOD_S_MAX
+
+    c, _ = client
+
+    # Settings API path: below the shared floor -> clamped to the floor.
+    response = c.put("/config", json={"values": {"live_period_s": 0.5}})
+    assert response.status_code == 200
+    assert response.json()["live_period_s"] == LIVE_PERIOD_S_MIN
+
+    # Config/env path: the same value loaded from the environment is clamped
+    # to the same floor by Config.load()'s normalisation.
+    monkeypatch.setenv("MA_LIVE_PERIOD_S", "0.5")
+    assert Config.load().live_period_s == LIVE_PERIOD_S_MIN
+
+    # The shared ceiling is applied by both paths as well.
+    response = c.put("/config", json={"values": {"live_period_s": 99.0}})
+    assert response.json()["live_period_s"] == LIVE_PERIOD_S_MAX
+    monkeypatch.setenv("MA_LIVE_PERIOD_S", "99")
+    assert Config.load().live_period_s == LIVE_PERIOD_S_MAX
+
+
 def test_unknown_meeting_404(client):
     c, _ = client
     assert c.get("/meetings/does-not-exist").status_code == 404

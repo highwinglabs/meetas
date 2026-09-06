@@ -60,7 +60,13 @@ class LiveTranscriptionPipeline:
         self._language = language
         self._resamplers: dict[int, StreamingLinearResampler] = {}
 
-        self._buf = np.zeros(0, dtype=np.float32)
+        # Bounded rolling window backed by a preallocated ring buffer: chunks
+        # are written in place (with wrap-around) instead of np.concatenate()
+        # re-copying the whole window on every chunk, which made steady-state
+        # copying quadratic in the window length over a long meeting.
+        self._ring = np.zeros(self._max_samples, dtype=np.float32)
+        self._ring_len = 0
+        self._ring_write = 0
         self._buf_start_s = 0.0
         # Absolute audio timestamp of the newest sample already considered by
         # the worker. This must not be an index into the rolling buffer: that
@@ -98,21 +104,51 @@ class LiveTranscriptionPipeline:
             resampler = StreamingLinearResampler(rate, self._sr)
             self._resamplers[rate] = resampler
         res = resampler.process(mono)
+        if res.size == 0:
+            return
         with self._cv:
-            if len(self._buf) == 0 and self._audio_end_s == 0.0:
+            if self._ring_len == 0 and self._audio_end_s == 0.0:
                 self._buf_start_s = max(0.0, float(start_s))
-            self._buf = np.concatenate([self._buf, res]) if len(self._buf) else res
-            self._audio_end_s = max(self._audio_end_s,
-                                    float(start_s) + len(res) / self._sr)
-            excess = len(self._buf) - self._max_samples
-            if excess > 0:
-                self._buf = self._buf[excess:]
-                self._buf_start_s += excess / self._sr
+            n = len(res)
+            chunk_end = float(start_s) + n / self._sr
+            if n > self._max_samples:
+                # Only the most recent max_samples are ever kept.
+                res = res[-self._max_samples:]
+                n = len(res)
+            write = self._ring_write
+            first = min(n, self._max_samples - write)
+            self._ring[write:write + first] = res[:first]
+            if first < n:
+                self._ring[0:n - first] = res[first:]
+            self._ring_write = (write + n) % self._max_samples
+            added = min(n, self._max_samples - self._ring_len)
+            self._ring_len = self._ring_len + added
+            if added < n:
+                evicted = n - added
+                self._buf_start_s += evicted / self._sr
                 if self._written_end_s < self._buf_start_s:
                     # dropped audio can no longer be finalized live; the batch
                     # transcribe at the end is authoritative for the full audio.
                     self._written_end_s = self._buf_start_s
+            self._audio_end_s = max(self._audio_end_s, chunk_end)
             self._cv.notify_all()
+
+    def _linearized(self) -> np.ndarray:
+        """Contiguous view of the ring contents, oldest sample first.
+
+        The caller must hold the lock. Returns a view when the window is not
+        wrapped; the one periodic concatenation happens in the copy the
+        transcribe pass takes, not on every chunk.
+        """
+        if self._ring_len == 0:
+            return np.zeros(0, dtype=np.float32)
+        read = (self._ring_write - self._ring_len) % self._max_samples
+        if read + self._ring_len <= self._max_samples:
+            return self._ring[read:read + self._ring_len]
+        # Wrapped: oldest samples sit at the end of the allocation, the
+        # newest after the write index.
+        second = read + self._ring_len - self._max_samples
+        return np.concatenate([self._ring[read:], self._ring[:second]])
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -184,7 +220,7 @@ class LiveTranscriptionPipeline:
         """Run one transcription pass. Returns the number of newly finalized
         segments written to the database (0 if nothing new)."""
         with self._lock:
-            buf = self._buf.copy()
+            buf = self._linearized().copy()
             buf_start = self._buf_start_s
 
         if len(buf) < self._sr:  # < 1 s of audio: not enough to transcribe

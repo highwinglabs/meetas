@@ -10,7 +10,7 @@ from core.store.fts import reindex_meeting
 from core.transcribe.processor import pick_asr_audio
 from core.store.models import Meeting, Recording, SpeakerLabel, TranscriptSegment
 from core.logging_setup import get_logger
-from core.services._common import UnknownMeetingError
+from core.services._common import SpeakerMergeConflictError, UnknownMeetingError
 
 log = get_logger("ma.service")
 
@@ -96,12 +96,17 @@ class SpeakersMixin:
             out.sort(key=lambda d: d["speaker_id"])
             return out
 
-    def rename_speaker(self, meeting_id: str, current: str, new_name: str) -> dict:
+    def rename_speaker(self, meeting_id: str, current: str, new_name: str,
+                       confirm_merge: bool = False) -> dict:
         """Rename a diarized speaker for this meeting.
 
         Renames ``current`` -> ``new_name`` on every segment of the meeting (so
         exports/FTS/analysis reflect the new name) and records the mapping as a
-        per-meeting speaker profile. Idempotent and offline."""
+        per-meeting speaker profile. Idempotent and offline.
+
+        If ``new_name`` already labels a different speaker, the rename would
+        silently merge the two speakers. That requires ``confirm_merge=True``;
+        otherwise a SpeakerMergeConflictError (HTTP 409) is raised (L13)."""
         current = (current or "").strip()
         new_name = (new_name or "").strip()
         if not current or not new_name:
@@ -110,6 +115,16 @@ class SpeakersMixin:
             meeting = s.get(Meeting, meeting_id)
             if meeting is None or meeting.deleted_at is not None:
                 raise UnknownMeetingError(meeting_id)
+            # L13: refuse to merge two existing speakers without explicit
+            # confirmation. A merge happens when some other segment already
+            # carries the target name (current == new_name is a no-op, not a
+            # merge, so it is excluded by the != current filter).
+            n_target = s.scalar(select(func.count()).select_from(TranscriptSegment)
+                                .where(TranscriptSegment.meeting_id == meeting_id,
+                                       TranscriptSegment.speaker_id == new_name,
+                                       TranscriptSegment.speaker_id != current)) or 0
+            if n_target > 0 and not confirm_merge:
+                raise SpeakerMergeConflictError(current, new_name, n_target)
             segs = s.scalars(
                 select(TranscriptSegment)
                 .where(TranscriptSegment.meeting_id == meeting_id,

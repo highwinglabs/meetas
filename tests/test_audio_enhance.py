@@ -7,7 +7,7 @@ import shutil
 import wave
 import pytest
 
-from core.audio.enhance import MicEnhancer
+from core.audio.mic_enhancer import MicEnhancer
 from core.audio.enhancement import (
     _filter_chain, default_audio_profiles, detect_noise_profile, enhance_audio,
     pcm_channel_values,

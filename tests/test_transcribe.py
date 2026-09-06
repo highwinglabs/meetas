@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from core.providers.base import ASRError
+from core.providers.base import ASRError, ASRSegment
 from core.store.db import session_scope
 from core.store.models import Meeting, ProcessingJob, TranscriptSegment, TranscriptVersion
 from tests.conftest import MockASREngine
@@ -33,6 +33,28 @@ def test_transcribe_writes_segments_and_fts(config, finalize_meeting):
     results = svc.search("Budget")
     assert len(results) >= 1
     assert any("Q2-Budget" in (r["text"] or "") for r in results)
+
+
+def test_transcribe_stores_per_segment_language(config, finalize_meeting):
+    # Regression (L5): code-switched segments keep their own language instead
+    # of all inheriting the first-segment (detected) language.
+    engine = MockASREngine(segments=[
+        ASRSegment(0.0, 1.2, "Hallo, alle zusammen.", "de", 0.9),
+        ASRSegment(1.5, 3.0, "Let's talk budget.", "en", 0.8),
+    ])
+    svc, mid = finalize_meeting(asr_engine=engine)
+    out = svc.transcribe(mid)
+    assert out["status"] == "done"
+    assert out["language"] == "de"  # detected = first segment's language
+
+    with session_scope() as s:
+        segs = sorted(
+            s.scalars(select(TranscriptSegment)
+                      .where(TranscriptSegment.meeting_id == mid)).all(),
+            key=lambda x: x.start_s)
+        assert [x.language for x in segs] == ["de", "en"]
+        m = s.get(Meeting, mid)
+        assert m.lang == "de"
 
 
 def test_transcribe_is_idempotent(config, finalize_meeting):

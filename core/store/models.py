@@ -218,6 +218,12 @@ class ProviderConfiguration(Base):
 class Analysis(Base):
     """A stored LLM analysis of a meeting (Phase 3). One row per (meeting, kind)."""
     __tablename__ = "analysis"
+    __table_args__ = (
+        # Enforced in the database too (migration a1b2c3d4e5f6): the write
+        # path is a select-then-insert upsert, so the unique index guards
+        # against concurrent/duplicate rows the same way as the job/task keys.
+        Index("uq_analysis_meeting_kind", "meeting_id", "kind", unique=True),
+    )
 
     id = Column(String(32), primary_key=True, default=new_id)
     meeting_id = Column(String(32), ForeignKey("meeting.id", ondelete="CASCADE"),
@@ -340,7 +346,10 @@ class Task(Base):
     __tablename__ = "task"
 
     id = Column(String(32), primary_key=True, default=new_id)
-    meeting_id = Column(String(32), ForeignKey("meeting.id", ondelete="CASCADE"),
+    # meeting_id is nullable so a task can be promoted to the global overview
+    # and edited independently; orphaning (SET NULL) on meeting deletion keeps
+    # the task (matching project_id) instead of cascading it away (L6).
+    meeting_id = Column(String(32), ForeignKey("meeting.id", ondelete="SET NULL"),
                         nullable=True, index=True)
     project_id = Column(String(32), ForeignKey("project.id", ondelete="SET NULL"),
                         nullable=True, index=True)

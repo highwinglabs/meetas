@@ -37,11 +37,20 @@ class BackupsMixin:
         return list_backups(self.config)
 
     def restore_backup(self, backup_id: str, confirm: bool = False) -> dict:
-        with self._state_lock:
-            if self._sessions:
-                raise ActiveMeetingError(
-                    "Ein Backup kann während einer aktiven Aufnahme nicht wiederhergestellt werden.")
-        return restore_backup(self.config, backup_id, confirm=confirm)
+        # L16: a restore overwrites the live DB. The "no active capture session"
+        # precondition is checked here and re-checked immediately before any
+        # file is swapped (pre_write_guard), because this check-then-act used to
+        # release the lock before the swap and a new session could start in the
+        # gap. Reusing one guard closure keeps both checks identical.
+        def _no_active_session() -> None:
+            with self._state_lock:
+                if self._sessions:
+                    raise ActiveMeetingError(
+                        "Ein Backup kann während einer aktiven Aufnahme nicht wiederhergestellt werden.")
+
+        _no_active_session()  # fast-fail before any DB reads
+        return restore_backup(self.config, backup_id, confirm=confirm,
+                              pre_write_guard=_no_active_session)
 
     def release_storage(self) -> dict:
         """Release application caches without stopping external audio/LLM services."""

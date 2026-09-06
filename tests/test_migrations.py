@@ -9,26 +9,36 @@ Also guards that a brand-new database still migrates normally.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import timedelta
+from pathlib import Path
 
+import sqlalchemy as sa
 from sqlalchemy import text
 
+import core.store.db as dbmod
 from core.store.db import (
     _INITIAL_TABLES,
+    _PRE_TASK_FK_SET_NULL_REVISION,
+    _has_index,
     _legacy_stamp_revision,
     _quote_ident,
+    _run_alembic,
+    _task_meeting_fk_is_set_null,
     apply_migrations,
     get_engine,
     make_engine,
     session_scope,
 )
 from core.store.models import (
+    Analysis,
     Base,
     Meeting,
     ProcessingJob,
     Recording,
     Task,
+    TaskHistory,
     TranscriptSegment,
     new_id,
     utcnow,
@@ -37,7 +47,26 @@ from core.store.models import (
 # Keep this in sync with the current migration head.  New migrations must
 # advance the head rather than making the production code pretend that the
 # previous revision is still current.
-_HEAD = "f3a9c7e5b2d4"
+_HEAD = "c2d4e6f8a1b3"
+# The revision carrying the old Task.meeting_id ON DELETE CASCADE FK, used to
+# build a "pre-fix" database for the SET NULL rebuild test.
+_PRE_TASK_FK_HEAD = "a1b2c3d4e5f6"
+
+
+def _migrations_paths():
+    migrations_dir = Path(dbmod.__file__).parent / "migrations"
+    return migrations_dir, migrations_dir / "alembic.ini"
+
+
+def _meeting_fk_on_delete(db_path) -> str | None:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        for row in conn.execute('PRAGMA foreign_key_list("task")'):
+            if row[2] == "meeting" and row[3] == "meeting_id":
+                return row[6]
+        return None
+    finally:
+        conn.close()
 
 
 def _tables(db_path) -> set[str]:
@@ -67,6 +96,98 @@ def _count(db_path, table: str) -> int:
         return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
     finally:
         conn.close()
+
+
+def test_fresh_db_task_fk_is_set_null(config):
+    # A brand-new database migrates all the way to head and ends with the
+    # task.meeting_id FK using SET NULL (L6), plus all task indexes intact.
+    make_engine(config)
+    apply_migrations(config)
+    get_engine().dispose()
+
+    assert _alembic_row(config.db_path) == _HEAD
+    assert _meeting_fk_on_delete(config.db_path) == "SET NULL"
+    assert _task_meeting_fk_is_set_null(config.db_path) is True
+    for idx in ("ix_task_meeting_id", "ix_task_project_id", "ix_task_status",
+                "ix_task_dedup_key", "ix_task_archived_at",
+                "ix_task_deleted_at", "uq_task_dedup_key"):
+        assert _has_index(config.db_path, idx), idx
+
+
+def test_task_fk_migration_preserves_rows_and_history(config):
+    # Build a pre-fix DB (task.meeting_id ON DELETE CASCADE) with real data,
+    # then run apply_migrations to head.  The SET NULL rebuild must preserve
+    # every task and task_history row and make deleting a meeting orphan (not
+    # destroy) its task.
+    make_engine(config)
+    os.environ["MA_DB_URL"] = config.db_url
+    migrations_dir, alembic_ini = _migrations_paths()
+    _run_alembic(["upgrade", _PRE_TASK_FK_HEAD], migrations_dir, alembic_ini)
+
+    mid, tid = new_id(), new_id()
+    with session_scope() as s:
+        s.add(Meeting(id=mid, title="M", title_status="auto",
+                      start_at=utcnow(), status="done"))
+        s.add(Task(id=tid, meeting_id=mid, text="Meeting task"))
+        s.add(Task(id=new_id(), meeting_id=None, text="Global task"))
+        s.add(TaskHistory(id=new_id(), task_id=tid, field="status",
+                          old_value="offen", new_value="erledigt"))
+    get_engine().dispose()
+
+    # sanity: pre-fix state is what we claim
+    assert _meeting_fk_on_delete(config.db_path) == "CASCADE"
+    assert _count(config.db_path, "task") == 2
+    assert _count(config.db_path, "task_history") == 1
+
+    apply_migrations(config)  # upgrade head -> runs the SET NULL rebuild
+    get_engine().dispose()
+
+    assert _alembic_row(config.db_path) == _HEAD
+    assert _meeting_fk_on_delete(config.db_path) == "SET NULL"
+    assert _count(config.db_path, "task") == 2, "rebuild dropped task rows"
+    assert _count(config.db_path, "task_history") == 1, "drop cascaded history"
+
+    # behaviour: deleting the meeting now orphans the task instead of cascading
+    with session_scope() as s:
+        meeting = s.get(Meeting, mid)
+        s.delete(meeting)
+    assert _count(config.db_path, "meeting") == 0
+    assert _count(config.db_path, "task") == 2, "task was cascade-deleted"
+    conn = sqlite3.connect(str(config.db_path))
+    try:
+        row = conn.execute("SELECT meeting_id FROM task WHERE id=?", (tid,)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None and row[0] is None, "task.meeting_id was not set NULL"
+
+
+def test_legacy_db_task_fk_cascade_stamps_before_head(config):
+    # A create_all DB built before the SET NULL migration still carries
+    # ON DELETE CASCADE on task.meeting_id; the legacy-stamp heuristic must
+    # stamp one revision behind so the rebuild runs.
+    make_engine(config)
+    Base.metadata.create_all(get_engine())  # new model -> already SET NULL
+    with get_engine().begin() as conn:
+        # Flip the task FK back to CASCADE to emulate an old installed DB
+        # (the table is empty here; only the FK action matters for the test).
+        conn.execute(sa.text("DROP TABLE task"))
+        conn.execute(sa.text(
+            "CREATE TABLE task (id VARCHAR(32) NOT NULL, "
+            "meeting_id VARCHAR(32), project_id VARCHAR(32), "
+            "source_segment_id VARCHAR(32), source_analysis_id VARCHAR(32), "
+            "text TEXT NOT NULL, responsible VARCHAR(256) NOT NULL, "
+            "due_date VARCHAR(32) NOT NULL, status VARCHAR(16) NOT NULL, "
+            "tags TEXT NOT NULL, dedup_key VARCHAR(64), sort_order INTEGER NOT NULL, "
+            "archived_at DATETIME, deleted_at DATETIME, "
+            "created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, "
+            "PRIMARY KEY (id), "
+            "FOREIGN KEY(meeting_id) REFERENCES meeting (id) ON DELETE CASCADE, "
+            "FOREIGN KEY(project_id) REFERENCES project (id) ON DELETE SET NULL)"))
+    get_engine().dispose()
+
+    assert _meeting_fk_on_delete(config.db_path) == "CASCADE"
+    assert _task_meeting_fk_is_set_null(config.db_path) is False
+    assert _legacy_stamp_revision(config.db_path) == _PRE_TASK_FK_SET_NULL_REVISION
 
 
 def test_fresh_db_migrates_normally(config):
@@ -138,6 +259,24 @@ def test_legacy_db_fully_present_stamps_head(config):
     apply_migrations(config)  # must not raise
 
     assert _alembic_row(config.db_path) == _HEAD
+
+
+def test_legacy_db_missing_analysis_index_stamps_before_head(config):
+    # A create_all DB built before the analysis unique-index migration lacks
+    # the index; it must be stamped one revision behind so the dedup + index
+    # migration still runs instead of being skipped.
+    make_engine(config)
+    Base.metadata.create_all(get_engine())
+    with get_engine().begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS uq_analysis_meeting_kind"))
+    get_engine().dispose()
+
+    assert _legacy_stamp_revision(config.db_path) == "f3a9c7e5b2d4"
+
+    apply_migrations(config)  # must not raise
+
+    assert _alembic_row(config.db_path) == _HEAD
+    assert _has_index(config.db_path, "uq_analysis_meeting_kind")
 
 
 def test_quote_ident_validates_identifiers(config):
@@ -264,3 +403,86 @@ def test_dup_migration_idempotent_on_rerun(config):
             "SELECT COUNT(*) FROM task WHERE dedup_key='dk-1'").fetchone()[0] == 1
     finally:
         conn.close()
+
+
+def test_analysis_unique_meeting_kind_dedups_and_enforces(config):
+    """Upgrading a DB that already holds duplicate analysis rows for the same
+    (meeting, kind) must collapse them (most recent wins) and then enforce
+    uniqueness so the upsert path can never create a second row."""
+    mid = new_id()
+    make_engine(config)
+    Base.metadata.create_all(get_engine())
+    # Simulate the pre-a1b2c3d4e5f6 schema: no unique index on analysis.
+    with get_engine().begin() as conn:
+        conn.execute(text("DROP INDEX IF EXISTS uq_analysis_meeting_kind"))
+        conn.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
+        conn.execute(text("DELETE FROM alembic_version"))
+        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES (:v)"),
+                     {"v": "f3a9c7e5b2d4"})
+
+    now = utcnow()
+    ids = {}
+    with session_scope() as s:
+        s.add(Meeting(id=mid, title="Dup Analysis", title_status="auto",
+                      start_at=now, status="done"))
+        # Two rows for the same (meeting, kind): the newer one must survive.
+        ids["stale"] = new_id()
+        ids["fresh"] = new_id()
+        s.add(Analysis(id=ids["stale"], meeting_id=mid, kind="summary",
+                       content="alt", model="m", created_at=now, updated_at=now))
+        s.add(Analysis(id=ids["fresh"], meeting_id=mid, kind="summary",
+                       content="neu", model="m",
+                       created_at=now + timedelta(seconds=5),
+                       updated_at=now + timedelta(seconds=5)))
+    get_engine().dispose()
+
+    apply_migrations(config)
+
+    conn = sqlite3.connect(str(config.db_path))
+    try:
+        assert _alembic_row(config.db_path) == _HEAD
+        rows = conn.execute(
+            "SELECT id, content FROM analysis WHERE meeting_id=?", (mid,)).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == ids["fresh"]
+        assert rows[0][1] == "neu"  # most recently modified analysis kept
+
+        # The unique index now exists and is enforced.
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+            ("uq_analysis_meeting_kind",)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def test_analysis_unique_index_rejects_duplicate_insert(config):
+    """On a migrated (head) database the unique index must reject a second row
+    for the same (meeting, kind) at the database level."""
+    mid = new_id()
+    make_engine(config)
+    Base.metadata.create_all(get_engine())
+    apply_migrations(config)
+
+    now = utcnow()
+    with session_scope() as s:
+        s.add(Meeting(id=mid, title="Unique", title_status="auto",
+                      start_at=now, status="done"))
+        s.add(Analysis(id=new_id(), meeting_id=mid, kind="summary",
+                       content="erst", model="m", created_at=now, updated_at=now))
+    get_engine().dispose()
+
+    from sqlalchemy.exc import IntegrityError
+    # A raw insert bypassing the upsert must be rejected at the DB level.
+    eng = get_engine()
+    try:
+        with eng.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO analysis (id, meeting_id, kind, content, "
+                "created_at, updated_at) VALUES (:i, :m, 'summary', 'dup', :t, :t)"),
+                {"i": new_id(), "m": mid, "t": now.isoformat()})
+            raised = False
+    except IntegrityError:
+        raised = True
+    finally:
+        eng.dispose()
+    assert raised

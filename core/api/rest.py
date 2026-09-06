@@ -20,7 +20,8 @@ from core.llm import LLMError, LLMUnavailableError, ServerBusyError
 from core.providers import ASRError, ModelNotReadyError
 from core.security.secrets import NetworkBlockedError
 from core.service import (
-    ActiveMeetingError, ConsentRequiredError, MeetingService, UnknownMeetingError, UnknownTaskError,
+    ActiveMeetingError, ConsentRequiredError, MeetingService, SpeakerMergeConflictError,
+    UnknownMeetingError, UnknownTaskError,
 )
 from core import __version__, i18n
 
@@ -46,6 +47,8 @@ def _handle(func, *args, **kwargs):
     except ConsentRequiredError as exc:
         raise HTTPException(409, i18n.localize(str(exc)))
     except ActiveMeetingError as exc:
+        raise HTTPException(409, i18n.localize(str(exc)))
+    except SpeakerMergeConflictError as exc:
         raise HTTPException(409, i18n.localize(str(exc)))
     except UnknownMeetingError as exc:
         raise HTTPException(404, i18n.localize(f"Meeting nicht gefunden: {exc.args[0]}"))
@@ -682,7 +685,7 @@ def list_speakers(meeting_id: str):
 @router.post("/meetings/{meeting_id}/speakers/rename")
 def rename_speaker(meeting_id: str, body: SpeakerRenameRequest):
     return _handle(get_service().rename_speaker, meeting_id, body.current,
-                   body.new_name)
+                   body.new_name, body.confirm_merge)
 
 
 # --- Phase 7a: markers, revisions (edits), tags, auto title/tags ---

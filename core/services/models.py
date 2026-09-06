@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import resource
 import wave
 import time as time_module
 import urllib.request
@@ -19,6 +18,24 @@ from core.logging_setup import get_logger
 from core.services._common import _NO_REDIRECT_OPENER, UnknownMeetingError
 
 log = get_logger("ma.service")
+
+
+def _peak_rss_mb() -> float | None:
+    """Peak resident-set size of this process in MB, or None when unavailable.
+
+    ``resource`` is a POSIX-only standard-library module; importing it at module
+    top would crash on non-POSIX platforms even though ``benchmark_asr`` is the
+    only caller. Import it lazily and fall back to None when the import fails
+    (L8).
+    """
+    try:
+        import resource  # POSIX-only stdlib module
+    except ImportError:
+        return None
+    try:
+        return round(float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024, 1)
+    except (AttributeError, ValueError, OSError):
+        return None
 
 
 class ModelsMixin:
@@ -122,7 +139,7 @@ class ModelsMixin:
         segments = engine.transcribe(audio_path, language=None)
         wall_s = round(time_module.perf_counter() - wall_start, 3)
         cpu_s = round(time_module.process_time() - cpu_start, 3)
-        rss_mb = round(float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024, 1)
+        rss_mb = _peak_rss_mb()
         realtime = round(wall_s / duration_s, 3) if duration_s else None
         return {
             "model": engine.model_name,

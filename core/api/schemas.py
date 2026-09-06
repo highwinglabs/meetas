@@ -95,6 +95,9 @@ class TagRequest(BaseModel):
 class SpeakerRenameRequest(BaseModel):
     current: str = Field(min_length=1, max_length=120)
     new_name: str = Field(min_length=1, max_length=120)
+    # Only send true when the UI has confirmed that renaming onto an existing
+    # speaker name should merge the two speakers (L13). Default false -> 409.
+    confirm_merge: bool = False
 
 
 class SegmentEditRequest(BaseModel):
