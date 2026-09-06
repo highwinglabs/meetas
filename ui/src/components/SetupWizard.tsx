@@ -99,8 +99,15 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         setError(t("setup.network_needed"));
         return;
       }
-      setDownloading(await api.setupDownload("asr", check.asr.model, confirmAsr));
+      const s = await api.setupDownload("asr", check.asr.model, confirmAsr);
+      setDownloading(s);
       setScreen("progress");
+      // Fast downloads (model already cached) can finish before the polling
+      // loop below starts; jump ahead instead of waiting for a poll.
+      if (s.state === "done") {
+        const c = await refresh();
+        if (c) setScreen("llm");
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -115,8 +122,16 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
         setError(t("setup.network_needed"));
         return;
       }
-      setDownloading(await api.setupDownload("ollama", llmModel, confirmLlm));
+      const s = await api.setupDownload("ollama", llmModel, confirmLlm);
+      setDownloading(s);
       setScreen("progress");
+      // Pulls of models that are already present finish in milliseconds;
+      // handle the finished state directly instead of stalling on the
+      // progress screen.
+      if (s.state === "done") {
+        const c = await refresh();
+        if (c) setScreen("llm");
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -266,6 +281,8 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
               </p>
               {downloading.total_bytes === null && <p className="dim">{t("setup.progress_no_total")}</p>}
             </div>
+          ) : downloading?.state === "done" ? (
+            <p className="ok-text">{t("setup.progress_done")}</p>
           ) : (
             <Note kind="error">{error ?? t("setup.progress_failed")}</Note>
           )}
@@ -292,7 +309,16 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
             <>
               <p>{t("setup.llm_select_desc")}</p>
               {!check.network_allowed && <p className="dim">{t("setup.network_note")}</p>}
-              <select className="input" value={llmModel} onChange={(e) => setLlmModel(e.target.value)}>
+              <select className="input" value={llmModel} onChange={(e) => {
+                const v = e.target.value;
+                setLlmModel(v);
+                // Persist the choice immediately: the wizard treats the
+                // selected model as the new default summary model, so the
+                // ready-state below reflects what the user actually picked.
+                void api.updateSettings({ default_summary_model: v })
+                  .then(() => void refresh())
+                  .catch(() => { /* keep local selection; retry on download */ });
+              }}>
                 {llms.map((m) => (
                   <option key={m.id} value={m.id}>{m.name} ({m.size})</option>
                 ))}
