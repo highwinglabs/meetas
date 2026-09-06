@@ -48,6 +48,7 @@ export default function TrashPanel() {
   return <div className="panel">
     <div className="head-row"><h1>{t("trash.title")}</h1><button className="btn" onClick={() => void load()}>{t("common.refresh")}</button></div>
     {error && <Note kind="error">{error}</Note>}
+    {!meetings.length && !projects.length && !files.length ? <Note>{t("trash.empty")}</Note> : <>
     <div className="card"><h2>{t("trash.meetings")}</h2>
       {!meetings.length ? <p className="dim">{t("trash.no_meetings")}</p> : meetings.map((m) => <div className="trash-row" key={m.id}><div><strong>{m.title}</strong><div className="dim">{t("trash.deleted", { date: fmtDate(m.deleted_at) })}</div></div><div className="row"><button className="btn small" onClick={() => api.restoreMeeting(m.id).then(load).catch((e) => setError((e as Error).message))}>{t("trash.restore")}</button><button className="btn small danger" onClick={() => void permanentMeeting(m.id)}>{t("trash.delete_permanently")}</button></div></div>)}
     </div>
@@ -57,5 +58,6 @@ export default function TrashPanel() {
     <div className="card"><h2>{t("trash.project_files")}</h2>
       {!files.length ? <p className="dim">{t("trash.no_project_files")}</p> : files.map((file) => <div className="trash-row" key={file.id}><div><strong>{file.name}</strong><div className="dim">{t("trash.file_meta", { project: file.project_name, date: fmtDate(file.deleted_at) })}</div></div><div className="row"><button className="btn small" onClick={() => api.restoreProjectFile(file.id).then(load).catch((e) => setError((e as Error).message))}>{t("trash.restore")}</button><button className="btn small danger" onClick={() => void permanentFile(file)}>{t("trash.delete_permanently")}</button></div></div>)}
     </div>
+    </>}
   </div>;
 }

@@ -110,7 +110,7 @@ export default function AudioWaveform({
         {noiseProfileRange && <span><i className="audio-legend-noise" /> {t("audio.noise_profile")}</span>}
       </div>
       <div className="audio-editor-meta">
-        <span className="dim">{t("audio.selection")} {fmtHMS(selection.start)} – {fmtHMS(Math.min(duration, selection.start + selection.duration))}</span>
+        <span className="dim">{t("audio.selection")} {fmtHMS(selection.start) ?? ""} – {fmtHMS(Math.min(duration, selection.start + selection.duration)) ?? ""}</span>
         {previewBusy && <span className="dim">{t("audio.updating_preview")}</span>}
       </div>
       <div className="audio-waveform-tools">

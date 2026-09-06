@@ -126,7 +126,6 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
             <div className="detail-meta">
               <span>{t("task.overview_open", { n: overview.open })}</span>
               <span>{t("task.overview_done", { n: overview.by_status["erledigt"] ?? 0 })}</span>
-              <span>{t("task.overview_total", { n: overview.total })}</span>
             </div>
           )}
         </div>
@@ -204,9 +203,7 @@ export default function TasksPanel({ onOpenMeeting }: { onOpenMeeting: (id: stri
                   <span className="chip">{taskItem.source ?? t("task.source_manual")}</span>
                   {taskItem.meeting_id && taskItem.meeting_title ? (
                     <button type="button" className="task-link" onClick={() => onOpenMeeting(taskItem.meeting_id!)}>{taskItem.meeting_title}</button>
-                  ) : (
-                    <span className="dim">{t("task.no_meeting")}</span>
-                  )}
+                  ) : null}
                   {taskItem.project_name ? <span>{t("task.project_label", { name: taskItem.project_name })}</span> : null}
                   {taskItem.deadline && taskItem.deadline !== "nicht angegeben" ? <span>{t("task.deadline_label", { deadline: taskItem.deadline })}</span> : null}
                 </div>

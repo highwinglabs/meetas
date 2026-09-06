@@ -157,7 +157,7 @@ export default function SearchPanel({
           <p className="rag-answer">{answer.answer}</p>
           {answer.sources.length > 0 && (
             <div className="rag-sources">
-              <h3>{t("chat.sources")}</h3>
+              <span className="dim">{t("chat.sources")}</span>
               {answer.sources.map((s) => (
                 s.source_kind === "document" ? (
                   <div className="hit" key={s.segment_id}>

@@ -59,8 +59,14 @@ class ModelsMixin:
         engine.prepare_model(allow_download=confirm)
         return {"name": engine.model_name, "ready": engine.is_model_ready()}
 
-    def install_ollama_model(self, model_name: str, confirm: bool = False) -> dict:
-        """Pull a named model into the local Ollama catalog after confirmation."""
+    def install_ollama_model(self, model_name: str, confirm: bool = False,
+                             on_progress=None) -> dict:
+        """Pull a named model into the local Ollama catalog after confirmation.
+
+        ``on_progress`` optionally receives ``(completed_bytes, total_bytes)``
+        while the pull stream reports progress; the endpoint contract is
+        unchanged when it is omitted.
+        """
         model_name = str(model_name or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", model_name):
             raise ValueError("Ungültiger Ollama-Modellname.")
@@ -89,6 +95,12 @@ class ModelsMixin:
                     if payload.get("error"):
                         raise ValueError(str(payload["error"]))
                     last_status = str(payload.get("status") or last_status)
+                    if on_progress is not None:
+                        completed = payload.get("completed")
+                        total = payload.get("total")
+                        if (isinstance(completed, (int, float))
+                                and isinstance(total, (int, float))):
+                            on_progress(int(completed), int(total))
                 if last_status != "success":
                     raise ValueError("Ollama hat die Modellinstallation nicht bestätigt.")
         except (OSError, ValueError) as exc:

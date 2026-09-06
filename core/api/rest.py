@@ -13,7 +13,7 @@ from core.api.schemas import (
     ProjectCreateRequest, ProjectUpdateRequest, SettingsUpdateRequest, ChatRequest,
     GeneralChatRequest,
     UploadStartRequest, LlmTestRequest,
-    AudioPreviewRequest, AudioEnhanceRequest,
+    AudioPreviewRequest, AudioEnhanceRequest, SetupDownloadRequest,
 )
 from core.config import get_config
 from core.llm import LLMError, LLMUnavailableError, ServerBusyError
@@ -434,6 +434,27 @@ def benchmark_asr(body: BenchmarkRequest):
 @router.post("/models/llm/test")
 def test_llm(body: LlmTestRequest):
     return _handle(get_service().test_llm, body.model)
+
+
+# --- first-run setup wizard ---
+@router.get("/setup/check")
+def setup_check():
+    return _handle(get_service().setup_check)
+
+
+@router.post("/setup/download", status_code=202)
+def setup_download(body: SetupDownloadRequest):
+    return _handle(get_service().start_model_download, body.kind, body.model, body.confirm)
+
+
+@router.get("/setup/download/status")
+def setup_download_status():
+    return _handle(get_service().download_status)
+
+
+@router.post("/setup/complete")
+def setup_complete():
+    return _handle(get_service().setup_complete)
 
 
 @router.post("/meetings/{meeting_id}/transcribe")

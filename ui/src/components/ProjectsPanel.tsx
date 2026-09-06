@@ -231,14 +231,14 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
     <div className="panel">
       <h1>{t("projects.title")}</h1>
       {error && <Note kind="error">{error}</Note>}
-      <div className="card">
-        <h2>{t("project.new")}</h2>
+      <details className="card project-new-details">
+        <summary>{t("project.new")}</summary>
         <div className="row wrap">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("project.name_placeholder")} />
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("project.description_placeholder")} />
           <button className="btn primary" onClick={() => void create()} disabled={busy || !name.trim()}>{t("common.create")}</button>
         </div>
-      </div>
+      </details>
       <div className="row wrap project-list-tools">
         <label className="check"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> {t("project.show_archived")}</label>
       </div>
@@ -248,7 +248,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
           <div className="project-card" key={project.id}>
             <button className="project-item" onClick={() => selected?.id === project.id ? setSelected(null) : void open(project.id)} aria-expanded={selected?.id === project.id}>
               <span><strong>{project.name}</strong><span className="project-desc">{project.description || t("project.no_description")}</span></span>
-              <span className="project-card-meta"><span className="dim">{t("project.meetings_files", { meetings: project.meetings, files: project.files })}</span><span className="project-open">{selected?.id === project.id ? t("project.opened") : t("project.open")} <span aria-hidden="true">↗</span></span></span>
+              <span className="project-card-meta"><span className="dim">{t("project.meetings_files", { meetings: project.meetings, files: project.files })}</span></span>
             </button>
             {selected?.id === project.id && (
               <div className="project-workspace">
@@ -256,8 +256,6 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
                   <div>
                     <div className="detail-meta">
                       <span className="chip">{selected.status === "archived" ? t("project.archived") : t("common.active")}</span>
-                      <span>{t("project.meetings_count", { n: selected.meetings.length })}</span>
-                      <span>{t("project.files_count", { n: selected.files.length })}</span>
                     </div>
                   </div>
                   <button className="btn small" onClick={() => setSelected(null)}>{t("project.collapse")}</button>
@@ -278,7 +276,6 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
                     <button className="btn primary" onClick={() => void save()} disabled={busy || !editName.trim()}>{t("common.save_short")}</button>
                     <button className="btn" onClick={() => void archive()} disabled={busy}>{selected.status === "archived" ? t("project.reactivate") : t("common.archive_verb")}</button>
                     <button className="btn danger" onClick={() => void trash()} disabled={busy}>{t("common.trash")}</button>
-                    <span className="dim">{selected.status === "archived" ? t("project.archived") : t("common.active")}</span>
                   </div>
                 </div>}
                 {projectView === "chat" && <div className="card project-section project-chat-card">
@@ -311,7 +308,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
                   </div>
                   {projectTasks.length === 0 ? <p className="dim">{t("project.no_tasks")}</p> : visibleProjectTasks.length === 0 ? <p className="dim">{t("project.no_tasks_area")}</p> : <div className="project-task-list">
                     {visibleProjectTasks.map((task) => <div className="project-task" key={task.id}>
-                      <div className="project-task-main"><strong>{task.text}</strong><div className="task-sub">{task.meeting_id && task.meeting_title ? <button type="button" className="task-link" onClick={() => onOpenMeeting(task.meeting_id!)}>{task.meeting_title}</button> : <span className="dim">{t("project.no_meeting")}</span>}{task.owner ? <span className="dim">{task.owner}</span> : null}{task.deadline && task.deadline !== "nicht angegeben" ? <span className="dim">{t("project.deadline_label", { deadline: task.deadline })}</span> : null}</div></div>
+                      <div className="project-task-main"><strong>{task.text}</strong><div className="task-sub">{task.meeting_id && task.meeting_title ? <button type="button" className="task-link" onClick={() => onOpenMeeting(task.meeting_id!)}>{task.meeting_title}</button> : null}{task.owner ? <span className="dim">{task.owner}</span> : null}{task.deadline && task.deadline !== "nicht angegeben" ? <span className="dim">{t("project.deadline_label", { deadline: task.deadline })}</span> : null}</div></div>
                       <span className={task.deleted_at ? "badge failed" : task.archived_at ? "badge warn" : task.status === "erledigt" ? "badge done" : "badge"}>{taskStatusLabel(task)}</span>
                     </div>)}
                   </div>}

@@ -48,9 +48,15 @@ Python dependencies. It then initializes storage and starts the service. Open:
 
     http://127.0.0.1:8765/
 
+On first start the UI shows a short **setup assistant**: it downloads the speech
+recognition model (one-time, with explicit confirmation) and optionally installs
+Ollama + a local AI model (skippable). Existing installations never see it again —
+the flag is derived from what is actually on disk, not from stored wizard state.
+
 | Flag | Effect |
 |---|---|
 | `--with-models` | Also download the live ASR model (network required) |
+| `--with-ollama` | Also install Ollama (the AI-model runtime) and start it |
 | `--no-start` | Install + initialize only; do not start the service |
 
 ASR models are downloaded **on demand** from the UI (network + explicit confirmation);
@@ -228,6 +234,15 @@ Notes:
   can never be shadowed; only `GET /` (`index.html`) and `GET /assets/*` are registered.
 - Build path: `<project>/ui/dist` (override with `MA_UI_DIST`).
 - The UI stores nothing itself; all state lives in the core (SQLite + filesystem).
+- **First-run setup assistant:** the wizard appears while `setup_completed` is unset
+  or the selected ASR model is not on disk (derived from `GET /setup/check`, never
+  from a stored step), so an interrupted setup resumes at the right screen after a
+  restart. Existing installations are marked silently on first start (the selected
+  model is already present), so configured users are never bothered. The downloads
+  run in a background worker with live progress (`POST /setup/download`,
+  `GET /setup/download/status`) and go through the same network/confirmation gates as
+  the existing model endpoints; if `/setup/check` is unreachable the UI simply shows
+  the normal app (fail-safe).
 
 ## Language (de/en)
 
@@ -312,7 +327,11 @@ shapes in `core/api/schemas.py`.
 ## LLM analysis (local)
 
 The assistant uses **an already-running local** LLM server with an OpenAI-compatible
-`/v1` interface (e.g. llama.cpp). It is **not** started by the app and **no second LLM
+`/v1` interface. **Ollama is the recommended runtime**: `./install.sh --with-ollama`
+installs and starts it from the terminal, and the setup assistant shows the same
+command (with a copy button) when Ollama is missing, then pulls the model with visible
+progress. Any other OpenAI-compatible server (e.g. llama.cpp) works as an advanced
+alternative. The server is **not** started by the app and **no second LLM
 is loaded** — it is an external process like ffmpeg, reachable only over loopback. A
 real analysis runs **only** when you trigger one. In **development and tests**, no real
 LLM call is ever made (a mock engine or `httpx.MockTransport` is used; `MA_LLM_MOCK=true`

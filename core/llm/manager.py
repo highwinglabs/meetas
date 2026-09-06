@@ -27,6 +27,13 @@ class LLMProviderManager:
         self._default: Optional[LLMEngine] = None
         self._lock = threading.Lock()
 
+    def _routes_to_ollama(self, base_url: str, model: str) -> bool:
+        """True when requests for `model` will reach the configured Ollama."""
+        ollama = str(getattr(self.config, "ollama_base_url", "") or "").rstrip("/")
+        if not ollama:
+            return False
+        return (self._endpoint_for_model(base_url, model) or "").rstrip("/") == ollama
+
     def _build(self, role: str) -> LLMEngine:
         profile = self.config.resolved_profile(role)
         if profile.get("mock"):
@@ -36,6 +43,7 @@ class LLMProviderManager:
             model=profile["model"],
             config=self.config,
         )
+        engine.ollama = self._routes_to_ollama(profile["base_url"], profile["model"])
         # Per-role tuning overrides the (role-agnostic) config-derived values.
         engine.temperature = float(profile.get("temperature", engine.temperature) or 0.2)
         engine.max_tokens = int(profile.get("max_tokens", engine.max_tokens) or 0)
@@ -115,6 +123,7 @@ class LLMProviderManager:
                 cached = OpenAICompatibleLLM(
                     base_url=self._endpoint_for_model(profile["base_url"], model),
                     model=model, config=self.config)
+                cached.ollama = self._routes_to_ollama(profile["base_url"], model)
                 cached.temperature = float(profile.get("temperature", cached.temperature) or 0.2)
                 cached.max_tokens = int(profile.get("max_tokens", cached.max_tokens) or 0)
                 self._cache[key] = cached

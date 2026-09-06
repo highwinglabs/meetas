@@ -245,6 +245,11 @@ class Config:
     # --- privacy / network ---
     network_allowed: bool = False  # NO network by default
     downloads_require_confirmation: bool = True
+    # --- first-run setup wizard ---
+    # True once the user finished the wizard, or set silently by the migration
+    # for existing installations that already have an ASR model on disk.
+    setup_completed: bool = False
+    setup_version: int = 1
     # Hard cap for a single uploaded file (direct + resumable). Prevents an
     # unbounded request body from exhausting memory/disk. 4 GiB covers large
     # lossless recordings while the browser still uploads them in small chunks.
@@ -372,6 +377,7 @@ class Config:
         cfg.port = _env_int("PORT", cfg.port)
         cfg.host = _env_str("HOST", cfg.host)
         cfg.network_allowed = _env_bool("NETWORK_ALLOWED", cfg.network_allowed)
+        cfg.setup_completed = _env_bool("SETUP_COMPLETED", cfg.setup_completed)
         cfg.max_upload_bytes = max(1, _env_int("MAX_UPLOAD_BYTES", cfg.max_upload_bytes))
         cfg.max_upload_chunk_bytes = max(
             1, _env_int("MAX_UPLOAD_CHUNK_BYTES", cfg.max_upload_chunk_bytes))
@@ -468,6 +474,7 @@ class Config:
         bounded_int("llm_max_busy_retries", 0, 100)
         bounded_int("pipeline_max_workers", 1, 4)
         bounded_int("pipeline_max_retries", 0, 20)
+        bounded_int("setup_version", 0, 100000)
         bounded_float("chunk_seconds", 0.05, 60.0)
         bounded_float("live_window_s", 6.0, 60.0)
         bounded_float("live_period_s", LIVE_PERIOD_S_MIN, LIVE_PERIOD_S_MAX)
@@ -554,7 +561,8 @@ class Config:
                      "auto_pipeline", "auto_analyze", "embeddings_enabled",
                      "rag_enabled", "system_audio_enabled", "tasks_enabled",
                      "auto_title_tags", "backup_enabled", "llm_mock",
-                     "reranking_enabled", "downloads_require_confirmation"):
+                     "reranking_enabled", "downloads_require_confirmation",
+                     "setup_completed"):
             if not isinstance(getattr(cfg, name), bool):
                 setattr(cfg, name, bool(getattr(defaults, name)))
         cfg.ensure_dirs()

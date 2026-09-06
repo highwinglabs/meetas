@@ -54,6 +54,8 @@ class OpenAICompatibleLLM(LLMEngine):
         self.busy_budget_s = float(getattr(config, "llm_busy_budget_s", 600.0) or 600.0)
         self.temperature = float(getattr(config, "llm_temperature", 0.2) or 0.2)
         self.max_tokens = int(getattr(config, "llm_max_tokens", 0) or 0)
+        # Set by LLMProviderManager when this engine is routed to Ollama.
+        self.ollama = False
         self._http = http_client
         self._sleep = sleep_fn
 
@@ -107,6 +109,12 @@ class OpenAICompatibleLLM(LLMEngine):
         tokens = self.max_tokens if max_tokens is None else max_tokens
         if tokens:
             payload["max_tokens"] = int(tokens)
+        if self.ollama:
+            # Ollama models with built-in thinking (z. B. Qwen3) can spend the
+            # whole max_tokens budget on hidden reasoning, leaving the content
+            # field empty for structured JSON analysis. Structured extraction
+            # runs faster and more reliably without thinking.
+            payload["reasoning_effort"] = "none"
         return payload
 
     def _parse(self, data: Dict[str, Any]) -> LLMResult:

@@ -89,6 +89,10 @@ def bootstrap(config: Config, use_migrations: bool = False,
         else:
             log.info("bootstrap_fts rows=up-to-date (reindex skipped)")
     service = MeetingService(config)
+    # First-run wizard migration: existing installations that already have the
+    # selected ASR model on disk are marked as set up (silently, once), so the
+    # wizard never appears for them. Fresh installs keep setup_completed=false.
+    service.setup_maybe_auto_complete()
     # P3: resume any post-stop pipeline left unfinished by a crash/restart.
     resumed = service.resume_pending_pipelines()
     if resumed:

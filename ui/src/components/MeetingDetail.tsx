@@ -3,7 +3,8 @@ import { api } from "../api";
 import type {
   AudioEnhancementProfile, ChatTurn, MeetingDetail as MDetail, Marker, ModelSpec, Project, Segment, Speaker, Task,
 } from "../types";
-import { fmtDate, fmtHMS } from "../format";
+import { fmtDate, fmtDuration } from "../format";
+import { activeLocale } from "../i18n/messages";
 import { Badge, Note, Spinner } from "./ui";
 import { useI18n } from "../i18n";
 import AnalysisView from "./AnalysisView";
@@ -761,8 +762,10 @@ export default function MeetingDetail({
           <div className="detail-meta">
             {detail.status !== "done" && <Badge status={detail.status} />}
             <span>{fmtDate(detail.start_at)}</span>
-            <span>{fmtHMS(detail.duration_s)}</span>
-            {detail.lang ? <span>{detail.lang}</span> : null}
+            {detail.duration_s != null && Number.isFinite(detail.duration_s) ? (
+              <span>{fmtDuration(detail.duration_s)}</span>
+            ) : null}
+            {detail.lang && detail.lang !== activeLocale() ? <span>{detail.lang}</span> : null}
           </div>
         </div>
       </div>
@@ -915,16 +918,14 @@ export default function MeetingDetail({
       </>}
 
       {viewTab === "ai" && <>
-          <div className="card ai-model-card">
-            {analysisModels.length > 0 && <label className="inline-select"><span>{t("common.ai_model")}</span><select value={analysisModel} onChange={(e) => setAnalysisModel(e.target.value)}>{analysisModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
-            {!analysisModels.length && <span className="hint">{t("detail.no_ai_model")}</span>}
-          </div>
           <div className="card actions ai-summary-action">
             <div className="row wrap">
               <button className="btn primary" onClick={analyze} disabled={busy !== null || analyzing || !hasSegs || !analysisModel}>{analyzing ? t("detail.analyzing_btn") : analysis ? t("detail.update_summary") : t("detail.create_summary")}</button>
               {analyzing && <button className="btn danger" onClick={cancelAnalysis} disabled={cancelingAnalysis}>{cancelingAnalysis ? t("detail.stopping") : t("detail.stop_btn")}</button>}
+              {analysisModels.length > 0 && <label className="inline-select"><span>{t("common.ai_model")}</span><select value={analysisModel} onChange={(e) => setAnalysisModel(e.target.value)}>{analysisModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>}
               <label className="inline-select"><span>{t("detail.template")}</span><select value={analysisTemplate} onChange={(e) => setAnalysisTemplate(e.target.value)}><option value="standard">{t("detail.tpl_standard")}</option><option value="compact">{t("detail.tpl_compact")}</option><option value="audit">{t("detail.tpl_audit")}</option><option value="action_items">{t("detail.tpl_actions")}</option></select></label>
             </div>
+            {!analysisModels.length && <span className="dim">{t("detail.no_ai_model")}</span>}
           </div>
 <ChatPanel
           question={chatQuestion}

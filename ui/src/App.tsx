@@ -8,6 +8,7 @@ import MeetingDetail from "./components/MeetingDetail";
 import SearchPanel from "./components/SearchPanel";
 import ModelStatus from "./components/ModelStatus";
 import TasksPanel from "./components/TasksPanel";
+import SetupWizard from "./components/SetupWizard";
 import BackupPanel from "./components/BackupPanel";
 import ProjectsPanel from "./components/ProjectsPanel";
 import SettingsPanel from "./components/SettingsPanel";
@@ -46,6 +47,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedSeg, setSelectedSeg] = useState<string | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
+  // First-run wizard: shown until setup is complete. Derived from the core, not
+  // stored in the UI; if /setup/check is unreachable we fall back to the main
+  // app (fail-safe) so a missing endpoint can never trap the user.
+  const [setupNeeded, setSetupNeeded] = useState(false);
   const [consent, setConsent] = useState<Consent | null>(null);
   const [consentOpen, setConsentOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -69,12 +74,22 @@ export default function App() {
     }
   }, []);
 
+  const refreshSetup = useCallback(async () => {
+    try {
+      const c = await api.setupCheck();
+      setSetupNeeded(!c.setup_completed || !c.asr.installed);
+    } catch {
+      setSetupNeeded(false);
+    }
+  }, []);
+
   useEffect(() => {
     refreshHealth();
     refreshConsent();
+    refreshSetup();
     const t = setInterval(refreshHealth, 5000);
     return () => clearInterval(t);
-  }, [refreshHealth, refreshConsent]);
+  }, [refreshHealth, refreshConsent, refreshSetup]);
 
   const consentOk = consent?.acknowledged ?? false;
   const adminTab = tab === "settings" || tab === "models" || tab === "backup";
@@ -124,23 +139,29 @@ export default function App() {
       )}
 
       <main className="content">
-        {tab === "recording" && (
-          <RecordingPanel consentOk={consentOk} onNeedConsent={() => setConsentOpen(true)} />
+        {setupNeeded ? (
+          <SetupWizard onComplete={() => setSetupNeeded(false)} />
+        ) : (
+          <>
+            {tab === "recording" && (
+              <RecordingPanel consentOk={consentOk} onNeedConsent={() => setConsentOpen(true)} />
+            )}
+            {tab === "meetings" && (
+              selectedId ? (
+                <MeetingDetail id={selectedId} segmentId={selectedSeg} onBack={() => { setSelectedId(null); setSelectedSeg(null); }} />
+              ) : (
+                <MeetingList onOpen={openMeeting} />
+              )
+            )}
+            {tab === "projects" && <ProjectsPanel onOpenMeeting={openMeeting} />}
+            {tab === "search" && <SearchPanel onOpenMeeting={openMeeting} />}
+            {tab === "tasks" && <TasksPanel onOpenMeeting={openMeeting} />}
+            {tab === "models" && <ModelStatus />}
+            {tab === "settings" && <SettingsPanel />}
+            {tab === "backup" && <BackupPanel />}
+            {tab === "trash" && <TrashPanel />}
+          </>
         )}
-        {tab === "meetings" && (
-          selectedId ? (
-            <MeetingDetail id={selectedId} segmentId={selectedSeg} onBack={() => { setSelectedId(null); setSelectedSeg(null); }} />
-          ) : (
-            <MeetingList onOpen={openMeeting} />
-          )
-        )}
-        {tab === "projects" && <ProjectsPanel onOpenMeeting={openMeeting} />}
-        {tab === "search" && <SearchPanel onOpenMeeting={openMeeting} />}
-        {tab === "tasks" && <TasksPanel onOpenMeeting={openMeeting} />}
-        {tab === "models" && <ModelStatus />}
-        {tab === "settings" && <SettingsPanel />}
-        {tab === "backup" && <BackupPanel />}
-        {tab === "trash" && <TrashPanel />}
       </main>
 
       <ConsentModal

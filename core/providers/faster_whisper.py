@@ -18,6 +18,68 @@ from core.security.secrets import require_network_action
 log = get_logger("ma.asr.whisper")
 
 
+class _ProgressTqdm:
+    """Minimal tqdm stand-in for huggingface_hub progress reporting.
+
+    huggingface_hub creates ``tqdm_class(total=..., unit=..., ...)`` per file
+    and calls ``update(n)`` with byte increments. This class only tracks the
+    running total so callers can render real download progress.
+    """
+
+    def __init__(self, on_progress=None, **kwargs):
+        self._on_progress = on_progress
+        self.total = int(kwargs.get("total") or 0)
+        self.n = 0
+
+    def update(self, n: int = 1) -> int:
+        self.n += int(n)
+        if self._on_progress is not None:
+            self._on_progress(self.n, self.total)
+        return self.n
+
+    def close(self) -> None:  # pragma: no cover - huggingface_hub housekeeping
+        pass
+
+    def set_description(self, *args, **kwargs) -> None:  # pragma: no cover
+        pass
+
+    def set_postfix_str(self, *args, **kwargs) -> None:  # XET rate reporting
+        pass
+
+    @property
+    def format_dict(self) -> dict:
+        return {}
+
+    def refresh(self) -> None:  # huggingface_hub redraws the (absent) bar
+        pass
+
+    def __enter__(self):  # huggingface_hub uses `with tqdm_class(...)` per file
+        return self
+
+    def __exit__(self, *exc):  # pragma: no cover - huggingface_hub housekeeping
+        return False
+
+
+def _progress_tqdm_factory(on_progress):
+    """Return the tqdm replacement *callable* that huggingface_hub needs.
+
+    huggingface_hub instantiates ``tqdm_class(desc=..., total=..., ...)``
+    several times per snapshot (a network "Downloading bytes" bar and a disk
+    "Reconstructing..." bar), so the callback must be bound by a factory —
+    passing an instance would raise TypeError and silently disable progress.
+    Only the reconstruction bar is reported; otherwise the manager's
+    monotonic byte counter would be fed by two interleaved counters.
+    """
+
+    def factory(**kwargs):
+        desc = str(kwargs.get("desc") or "")
+        if not desc.startswith("Reconstructing"):
+            return _ProgressTqdm(on_progress=None, **kwargs)
+        return _ProgressTqdm(on_progress=on_progress, **kwargs)
+
+    return factory
+
+
 class FasterWhisperEngine(ASREngine):
     def __init__(self, model_name: str = "small", compute_type: str = "int8",
                  device: str = "cpu", config: Config | None = None):
@@ -31,6 +93,19 @@ class FasterWhisperEngine(ASREngine):
 
     def _model_id(self) -> str:
         return f"Systran/faster-whisper-{self.model_name}"
+
+    def hf_repo_ids(self) -> list[str]:
+        """HuggingFace repo candidates in preference order.
+
+        ``large-v3-turbo`` moved from Systran to mobiuslabsgmbh; accept both so
+        neither an old nor a new download is reported as missing.
+        """
+        if self.model_name == "large-v3-turbo":
+            return [
+                f"mobiuslabsgmbh/faster-whisper-{self.model_name}",
+                f"Systran/faster-whisper-{self.model_name}",
+            ]
+        return [f"Systran/faster-whisper-{self.model_name}"]
 
     def _repo_dir(self) -> str:
         # huggingface_hub cache folder name for the repo (slashes -> "--").
@@ -85,6 +160,44 @@ class FasterWhisperEngine(ASREngine):
             f"download ASR model '{self.model_name}'", self.config, confirmed=True)
         log.info("downloading ASR model '%s' -> %s", self.model_name, self.download_root)
         self._load_model(local_files_only=False)
+
+    def download_with_progress(self, on_progress=None, confirmed: bool = False) -> None:
+        """Explicit HuggingFace snapshot download into the standard cache layout.
+
+        Unlike :meth:`prepare_model` this never loads the model and reports
+        ``(downloaded_bytes, total_bytes)`` through ``on_progress`` (per file).
+        Readiness is unchanged: weights land in
+        ``models--<publisher>--faster-whisper-<name>/snapshots/<rev>/model.bin``
+        which :meth:`is_model_ready` already recognises.
+        """
+        if self.is_model_ready():
+            return
+        require_network_action(
+            f"download ASR model '{self.model_name}'", self.config, confirmed=confirmed)
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError as exc:  # pragma: no cover - always a faster-whisper dep
+            raise ASRError("huggingface_hub ist nicht installiert.") from exc
+        last_error: Exception | None = None
+        for repo_id in self.hf_repo_ids():
+            try:
+                log.info("downloading ASR model '%s' from %s -> %s",
+                         self.model_name, repo_id, self.download_root)
+                try:
+                    snapshot_download(
+                        repo_id=repo_id,
+                        cache_dir=str(self.download_root),
+                        tqdm_class=_progress_tqdm_factory(on_progress),
+                    )
+                except TypeError:
+                    # huggingface_hub too old for tqdm_class: no progress, same result.
+                    snapshot_download(repo_id=repo_id, cache_dir=str(self.download_root))
+                return
+            except Exception as exc:  # try the next candidate repo
+                last_error = exc
+        raise ASRError(
+            f"ASR-Modell '{self.model_name}' konnte nicht heruntergeladen werden "
+            f"({last_error})") from last_error
 
     def _load_model(self, local_files_only: bool = False):
         if self._model is None:

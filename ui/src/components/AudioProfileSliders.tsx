@@ -51,7 +51,7 @@ export default function AudioProfileSliders({
             </div>
             <div className="audio-selection-actions">
               <button type="button" className="btn small" onClick={onUseSelectionAsNoiseProfile}>{t("audio.use_selection")}</button>
-              <span className="dim">{noiseProfileRange ? t("audio.range_applied", { start: fmtHMS(noiseProfileRange.start_s), end: fmtHMS(noiseProfileRange.end_s) }) : t("audio.no_range")}</span>
+              <span className="dim">{noiseProfileRange ? t("audio.range_applied", { start: fmtHMS(noiseProfileRange.start_s) ?? "", end: fmtHMS(noiseProfileRange.end_s) ?? "" }) : t("audio.no_range")}</span>
             </div>
           </>}
         </>}

@@ -49,28 +49,30 @@ export default function AnalysisView({ content, markdown, model, outputLanguage 
   }
 
   const miss = missingText(lang);
-  const sections = sectionsForLang(lang);
+  // Empty sections are hidden entirely; if nothing at all was extracted, a
+  // single placeholder line replaces all nine "not specified" blocks.
+  const sections = sectionsForLang(lang).filter((s) => (parsed[s.key] ?? []).length > 0);
   return (
     <div className="analysis">
       <div className="analysis-model dim">{t("analysis.model", { model })}{outputLanguage ? ` · ${t("analysis.language", { lang: outputLanguage })}` : ""}</div>
-      {sections.map((s) => {
-        const entries = (parsed[s.key] ?? []) as AnalysisEntry[];
-        const isTask = s.key === "aufgaben";
-        return (
-          <div key={s.key} className="analysis-section">
-            <h3>{s.title}</h3>
-            {entries.length === 0 ? (
-              <div className="na">{miss}</div>
-            ) : (
+      {sections.length === 0 ? (
+        <div className="na">{miss}</div>
+      ) : (
+        sections.map((s) => {
+          const entries = (parsed[s.key] ?? []) as AnalysisEntry[];
+          const isTask = s.key === "aufgaben";
+          return (
+            <div key={s.key} className="analysis-section">
+              <h3>{s.title}</h3>
               <div className="entries">
                 {entries.map((e, i) => (
                   <Entry key={i} e={e} isTask={isTask} lang={lang} />
                 ))}
               </div>
-            )}
-          </div>
-        );
-      })}
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }

@@ -30,9 +30,13 @@ export default function SpeakersTab({
   const { t } = useI18n();
   return (
     <>
-      <div className="card actions"><div className="actions-title">{t("speakers.title")}</div><button className="btn" onClick={onDiarize} disabled={busy || diarizing || !hasSegments}>{diarizing ? t("speakers.running") : t("speakers.start")}</button>{diarNote && <Note kind="ok">{diarNote}</Note>}</div>
       <section className="block">
-        <h2>{t("speakers.title")} <span className="count">{speakers.length}</span></h2>
+        <div className="row">
+          <h2>{t("speakers.title")} <span className="count">{speakers.length}</span></h2>
+          <span className="grow" />
+          <button className="btn" onClick={onDiarize} disabled={busy || diarizing || !hasSegments}>{diarizing ? t("speakers.running") : t("speakers.start")}</button>
+        </div>
+        {diarNote && <Note kind="ok">{diarNote}</Note>}
         {!speakers.length ? (
           <Note>{t("speakers.empty")}</Note>
         ) : (

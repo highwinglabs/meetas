@@ -40,12 +40,14 @@ from core.store.models import ConsentEvent, Meeting, Recording, TranscriptSegmen
 from core.services.analytics import AnalyticsMixin
 from core.services.audio import AudioMixin
 from core.services.backups import BackupsMixin
+from core.services.downloads import DownloadsMixin, _idle_state
 from core.services.markers import MarkersMixin
 from core.services.meetings import MeetingsMixin
 from core.services.models import ModelsMixin
 from core.services.pipelines import PipelineMixin
 from core.services.projects import ProjectsMixin
 from core.services.search import SearchMixin
+from core.services.setup import SetupMixin
 from core.services.settings import SettingsMixin
 from core.services.speakers import SpeakersMixin
 from core.services.system import SystemMixin
@@ -80,7 +82,7 @@ class MeetingService(
     MeetingsMixin, AudioMixin, SettingsMixin, ProjectsMixin, UploadsMixin,
     TranscriptionMixin, ModelsMixin, SpeakersMixin, SearchMixin,
     AnalyticsMixin, BackupsMixin, SystemMixin, PipelineMixin, TasksMixin,
-    MarkersMixin,
+    MarkersMixin, DownloadsMixin, SetupMixin,
 ):
     def __init__(self, config: Config, source_factory: SourceFactory | None = None,
                  asr_engine: ASREngine | None = None,
@@ -99,6 +101,10 @@ class MeetingService(
         # sequence of attribute assignments can otherwise expose a mixed
         # configuration halfway through an update.
         self._config_lock = threading.RLock()
+        # First-run setup wizard: one background model download at a time.
+        self._downloads_lock = threading.Lock()
+        self._download_state = _idle_state()
+        self._download_thread: threading.Thread | None = None
         # Admission lock closes the check-then-insert race between two API
         # callers starting a meeting at the same time. SQLite transactions
         # alone cannot prevent both readers from observing no active row.

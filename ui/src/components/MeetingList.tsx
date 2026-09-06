@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { MeetingListItem } from "../types";
-import { fmtClock, fmtDate } from "../format";
+import { fmtDate, fmtDuration } from "../format";
 import { Badge, Note } from "./ui";
 import { useI18n } from "../i18n";
 
@@ -45,7 +45,7 @@ export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }
         <div className="grow"><h1>{t("meetings.title")}</h1></div>
         <button className="btn" onClick={load}>{t("common.refresh")}</button>
       </div>
-      {items.length > 0 && <div className="meeting-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("meetings.search_placeholder")} aria-label={t("meetings.search_aria")} /><span className="dim">{t("meetings.count", { shown: filteredItems.length, total: items.length })}</span></div>}
+      {items.length > 0 && <div className="meeting-list-tools"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("meetings.search_placeholder")} aria-label={t("meetings.search_aria")} />{query && <span className="dim">{t("meetings.count", { shown: filteredItems.length, total: items.length })}</span>}</div>}
       {items.length === 0 ? (
         <Note>{t("meetings.empty")}</Note>
       ) : filteredItems.length === 0 ? (
@@ -57,7 +57,13 @@ export default function MeetingList({ onOpen }: { onOpen: (id: string) => void }
               <button className="meeting-main meeting-open" onClick={() => onOpen(m.id)}>
                 <div className="meeting-title">{m.title}</div>
                 <div className="meeting-sub">
-                  {fmtDate(m.start_at)} · {fmtClock(m.duration_s)} · {t("meetings.segments", { n: m.segments })}
+                  {[
+                    fmtDate(m.start_at),
+                    m.duration_s != null && m.duration_s > 0 ? fmtDuration(m.duration_s) : null,
+                    m.segments > 0 ? t("meetings.segments", { n: m.segments }) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </div>
               </button>
               {m.status !== "done" && <Badge status={m.status} />}

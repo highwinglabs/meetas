@@ -123,8 +123,8 @@ export default function SettingsPanel() {
         <h2>{t("lang.title")}</h2>
         <p className="setting-info">{t("lang.hint")}</p>
         <div className="row">
-          <label className="field"><span>{t("lang.title")}</span>
-            <select value={pref} onChange={(e) => setLang(e.target.value as LangPref)}>
+          <label className="field"><span className="sr-only">{t("lang.title")}</span>
+            <select value={pref} onChange={(e) => setLang(e.target.value as LangPref)} aria-label={t("lang.title")}>
               <option value="system">{t("lang.system")}</option>
               <option value="de">{t("lang.de")}</option>
               <option value="en">{t("lang.en")}</option>

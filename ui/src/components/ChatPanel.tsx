@@ -47,7 +47,7 @@ export default function ChatPanel({
               </div>
               <p className="rag-answer">{message.answer.answer}</p>
               {message.answer.sources.length > 0 && <div className="rag-sources">
-                <h3>{t("chat.sources")}</h3>
+                <span className="dim">{t("chat.sources")}</span>
                 {message.answer.sources.map((s) => (
                   <button key={`${index}-${s.segment_id}`} className="hit" onClick={() => onJumpToSegment(s.segment_id)}>
                     <div className="hit-head"><span>{s.speaker_id ?? t("common.speaker")}</span><span className="hit-time">{s.timestamp}</span></div>

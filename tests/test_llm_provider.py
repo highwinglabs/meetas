@@ -231,3 +231,23 @@ def test_manager_engine_for_model_is_cached(config):
     assert manager.engine_for_model("m2") is not manager.engine_for_model("m1")
     manager.clear_cache()
     assert manager._cache == {}
+
+
+def test_payload_disables_ollama_thinking(config):
+    eng, _ = _engine(config, lambda r: httpx.Response(200, json=_ok_body()))
+    payload = eng._build_payload("p", None, None, None)
+    assert "reasoning_effort" not in payload, "llama.cpp payloads must stay unchanged"
+    eng.ollama = True
+    assert eng._build_payload("p", None, None, None)["reasoning_effort"] == "none"
+
+
+def test_manager_marks_ollama_engines(config):
+    from core.llm.manager import LLMProviderManager
+    config.ollama_base_url = "http://127.0.0.1:11434/v1"
+    manager = LLMProviderManager(config)
+    # Ollama-style id (contains a tag) is routed to Ollama -> thinking off.
+    ollama_eng = manager.engine_for_model("qwen3.5:4b")
+    assert ollama_eng.ollama is True
+    # A plain llama.cpp model stays on the configured endpoint without the flag.
+    assert manager.engine_for_model("llama-3-8b").ollama is False
+    manager.clear_cache()

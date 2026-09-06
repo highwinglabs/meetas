@@ -3,6 +3,7 @@ import type {
   FeatureFlags, LiveStatus, Marker, MeetingDetail, MeetingListItem,
   RagAnswer, SearchHit, Speaker, Tag, Task, TaskOverview, ChatTurn,
   AppSettings, AudioEnhancementProfile, ModelSpec, Project, UploadSession,
+  SetupCheck, SetupDownloadStatus,
 } from "./types";
 import { msg, activeLang } from "./i18n/messages";
 
@@ -151,6 +152,14 @@ export const api = {
   testLlm: (model?: string | null) => request<{ ok: boolean; model: string; seconds: number; response: string }>("/models/llm/test", {
     method: "POST", body: JSON.stringify({ model: model ?? null }),
   }),
+
+  setupCheck: () => request<SetupCheck>("/setup/check"),
+  setupDownload: (kind: "asr" | "ollama", model: string | null, confirm: boolean) =>
+    request<SetupDownloadStatus>("/setup/download", {
+      method: "POST", body: JSON.stringify({ kind, model, confirm }),
+    }),
+  setupDownloadStatus: () => request<SetupDownloadStatus>("/setup/download/status"),
+  setupComplete: () => request<{ setup_completed: boolean; setup_version: number }>("/setup/complete", { method: "POST" }),
 
   startTranscription: (id: string, language?: string | null, model?: string | null, allow_download: boolean = false) =>
     request<{ meeting_id: string; status: string; job_id: string }>(`/meetings/${id}/transcribe/start`, {

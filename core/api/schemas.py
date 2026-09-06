@@ -37,6 +37,13 @@ class DownloadModelRequest(BaseModel):
     model: Optional[str] = None
 
 
+class SetupDownloadRequest(BaseModel):
+    """First-run wizard: start one background model download."""
+    kind: Literal["asr", "ollama"]
+    model: Optional[str] = None
+    confirm: bool = False
+
+
 class BenchmarkRequest(BaseModel):
     model: str = Field(min_length=1, max_length=160)
     meeting_id: Optional[str] = None

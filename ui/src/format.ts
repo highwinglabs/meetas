@@ -1,8 +1,8 @@
 import type { AnalysisData } from "./types";
 import { activeLocale, type MessageKey } from "./i18n/messages";
 
-export function fmtHMS(sec: number | null | undefined): string {
-  if (sec == null || Number.isNaN(sec)) return "--:--:--";
+export function fmtHMS(sec: number | null | undefined): string | null {
+  if (sec == null || Number.isNaN(sec)) return null;
   const s = Math.max(0, Math.floor(sec));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -11,12 +11,25 @@ export function fmtHMS(sec: number | null | undefined): string {
   return `${p(h)}:${p(m)}:${p(ss)}`;
 }
 
-export function fmtClock(sec: number | null | undefined): string {
-  if (sec == null || Number.isNaN(sec)) return "0:00";
+export function fmtClock(sec: number | null | undefined): string | null {
+  if (sec == null || Number.isNaN(sec)) return null;
   const s = Math.max(0, Math.floor(sec));
   const m = Math.floor(s / 60);
   const ss = s % 60;
   return `${m}:${ss.toString().padStart(2, "0")}`;
+}
+
+// 4950 -> "1 h 23 min"; null/NaN -> null
+export function fmtDuration(sec: number | null | undefined): string | null {
+  if (sec == null || Number.isNaN(sec)) return null;
+  const total = Math.max(0, Math.round(sec));
+  if (total < 60) return `${total} s`;
+  const m = Math.floor(total / 60);
+  const secPart = total % 60;
+  if (m < 60) return secPart > 0 ? `${m} min ${secPart} s` : `${m} min`;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return mm > 0 ? `${h} h ${mm} min` : `${h} h`;
 }
 
 export function fmtDate(iso: string | null | undefined): string {

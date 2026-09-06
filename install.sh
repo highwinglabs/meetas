@@ -9,12 +9,14 @@
 #   4. web UI          : uses the prebuilt ui/dist (no Node/npm needed)
 #   5. init            : storage + database
 #   6. (optional)      : --with-models -> download the live ASR model
+#   6b. (optional)     : --with-ollama -> install + start Ollama (AI runtime)
 #   7. start           : daemon (skip with --no-start), then print the URL
 #
 set -euo pipefail
 
 # --------------------------------------------------------------- flags
 WITH_MODELS=0
+WITH_OLLAMA=0
 NO_START=0
 
 usage() {
@@ -25,6 +27,8 @@ Usage: ./install.sh [options]
 
 Options:
   --with-models   Also download the live ASR model after init (network required)
+  --with-ollama   Also install Ollama (the AI-model runtime) and start it
+                  (network required; the UI setup assistant continues after)
   --no-start      Install and initialize only; do not start the service
   -h, --help      Show this help and exit
 
@@ -34,7 +38,8 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    --with-models) WITH_MODELS=1 ;;
+    --with-models)  WITH_MODELS=1 ;;
+    --with-ollama)  WITH_OLLAMA=1 ;;
     --no-start)    NO_START=1 ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "Unknown argument: $arg" >&2; usage; exit 2 ;;
@@ -161,6 +166,47 @@ if (( WITH_MODELS )); then
     ok "ASR model ready."
   else
     warn "Model download failed. Retry:  uv run meeting-core download-model --confirm"
+  fi
+  echo
+fi
+
+# --------------------------------------------------------------- 6b) optional Ollama (AI runtime)
+if (( WITH_OLLAMA )); then
+  if have ollama; then
+    ok "Ollama already installed."
+  else
+    step "Installing Ollama (network required) ..."
+    # The official Ollama install script (v0.12+) needs zstd to extract the
+    # bundle; Ubuntu/Debian do not ship it by default.
+    if ! have zstd; then
+      case "$PKG" in
+        apt)    sudo apt-get install -y --no-install-recommends zstd ;;
+        dnf)    sudo dnf install -y zstd ;;
+        pacman) sudo pacman -Sy --noconfirm --needed zstd ;;
+        *)      warn "zstd not found - the Ollama install script needs it (e.g. 'sudo apt-get install zstd')." ;;
+      esac
+    fi
+    if [[ "$PKG" == "pacman" ]]; then
+      # Arch: community package (the setup wizard gives the same hint in the UI)
+      sudo pacman -Sy --noconfirm --needed ollama || warn "Ollama install failed. Retry:  sudo pacman -S ollama"
+    else
+      curl -fsSL https://ollama.com/install.sh | sh || warn "Ollama install failed. Retry:  curl -fsSL https://ollama.com/install.sh | sh"
+    fi
+  fi
+  if have ollama; then
+    # The package/script may not start the service; ensure it is up.
+    if ! curl -fsS --max-time 1 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+      step "Starting Ollama service ..."
+      ( systemctl start ollama 2>/dev/null || sudo systemctl start ollama 2>/dev/null || nohup ollama serve >/dev/null 2>&1 & ) || true
+      sleep 2
+    fi
+    if curl -fsS --max-time 2 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+      ok "Ollama is running. Models are fetched on demand by the UI setup assistant."
+    else
+      warn "Ollama is installed but not reachable yet - the UI setup assistant will guide you."
+    fi
+  else
+    warn "Ollama could not be installed automatically. The UI setup assistant shows the command to run manually."
   fi
   echo
 fi

@@ -204,6 +204,34 @@ export interface ModelSpec {
   note?: string;
 }
 
+// --- first-run setup wizard ---
+export interface SetupCheck {
+  setup_completed: boolean;
+  setup_version: number;
+  ffmpeg: boolean;
+  network_allowed: boolean;
+  disk_free_mb: number | null;
+  asr: { model: string; size_mb: number; installed: boolean };
+  ollama: {
+    reachable: boolean;
+    selected_model: string;
+    has_model: boolean;
+    install_hint: string | null;
+  };
+  download: SetupDownloadStatus;
+}
+
+export interface SetupDownloadStatus {
+  state: "idle" | "running" | "done" | "error";
+  kind: "asr" | "ollama" | null;
+  model: string | null;
+  file: string | null;
+  downloaded_bytes: number;
+  total_bytes: number | null;
+  speed_bytes_per_s: number | null;
+  error: string | null;
+}
+
 export interface BenchmarkResult {
   model: string;
   meeting_id: string | null;

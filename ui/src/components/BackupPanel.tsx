@@ -108,9 +108,6 @@ export default function BackupPanel() {
       <div className="head-row">
         <div className="grow">
           <h1 className="detail-title">{t("backup.title")}</h1>
-          <div className="detail-meta">
-            <span>{t("backup.count", { n: backups.length })}</span>
-          </div>
         </div>
       </div>
 
@@ -145,9 +142,8 @@ export default function BackupPanel() {
       <details className="card maintenance-details">
         <summary>{t("backup.maintenance")}</summary>
         <div className="maintenance-content">
-          <h2>{t("backup.remove_temp")}</h2>
           <p className="hint">{t("backup.release_hint")}</p>
-          <button className="btn" onClick={() => void releaseStorage()} disabled={releaseBusy}>{releaseBusy ? t("backup.releasing") : t("backup.remove_temp")}</button>
+          <button className="btn" onClick={() => void releaseStorage()} disabled={releaseBusy}>{releaseBusy ? t("backup.releasing") : t("backup.remove_short")}</button>
         </div>
       </details>
 
