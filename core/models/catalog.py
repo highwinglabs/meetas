@@ -101,6 +101,7 @@ def _llm_models(config: Config) -> list[ModelSpec]:
     ids: list[tuple[str, str, str]] = [
         (config.default_summary_model, "Qwen3.5 4B", "schnelle Analyse"),
         (config.quality_analysis_model, "Qwen 27B (vorhanden)", "maximale Analysequalität"),
+        ("gemma4:e4b", "Gemma 4 E4B", "kompakte Analyse"),
         ("gemma4:9b", "Gemma 4 9B", "ausgewogene Analyse"),
         ("gemma4:26b", "Gemma 4 26B", "qualitative Analyse"),
     ]

@@ -259,7 +259,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
 
       {screen === "progress" && (
         <section className="setup-screen">
-          <h2>{downloading?.kind === "ollama" ? t("setup.llm_loading_title") : t("setup.progress_title")}</h2>
+          <h2>{downloading?.kind === "ollama" ? t("setup.llm_loading_title") : t("setup.progress_title")}{downloading?.model ? <span className="dim"> · {downloading.model}</span> : null}</h2>
           {downloading?.state === "running" ? (
             <div className="setup-progress">
               <div className="setup-bar" role="progressbar" aria-label="progress">
@@ -315,7 +315,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 // Persist the choice immediately: the wizard treats the
                 // selected model as the new default summary model, so the
                 // ready-state below reflects what the user actually picked.
-                void api.updateSettings({ default_summary_model: v })
+                void api.updateSettings({ default_summary_model: v, llm_model: v })
                   .then(() => void refresh())
                   .catch(() => { /* keep local selection; retry on download */ });
               }}>
@@ -323,6 +323,7 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                   <option key={m.id} value={m.id}>{m.name} ({m.size})</option>
                 ))}
               </select>
+              <p className="dim setup-note">{t("setup.llm_note_endpoint")}</p>
               <label className="setup-confirm">
                 <input type="checkbox" checked={confirmLlm} onChange={(e) => setConfirmLlm(e.target.checked)} />
                 {t("setup.llm_confirm", { model: llmModel })}
