@@ -49,9 +49,12 @@ Python dependencies. It then initializes storage and starts the service. Open:
     http://127.0.0.1:8765/
 
 On first start the UI shows a short **setup assistant**: it downloads the speech
-recognition model (one-time, with explicit confirmation) and optionally installs
-Ollama + a local AI model (skippable). Existing installations never see it again —
-the flag is derived from what is actually on disk, not from stored wizard state.
+recognition model (one-time, with explicit confirmation) and, if Ollama is
+installed (e.g. via `--with-ollama`), downloads the local AI model with visible
+progress — otherwise it shows the one-line Ollama install command and continues
+automatically as soon as Ollama is reachable. The AI step is skippable. Existing
+installations never see it again — the flag is derived from what is actually on
+disk, not from stored wizard state.
 
 | Flag | Effect |
 |---|---|
