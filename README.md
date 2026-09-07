@@ -16,8 +16,9 @@ AI services.
 
 **Capture**
 - 🎙️ **Record meetings** — start, pause, resume, stop; everything stored crash-safely
-- 📥 **Import existing recordings** — WAV, MP3, M4A, FLAC, OGG, OPUS, AAC (and
-  video files) — resumable uploads, imported as normal meetings
+- 📥 **Import existing recordings** — WAV, MP3, M4A, FLAC, OGG, OPUS, AAC and
+  video files (MP4, MKV, WEBM, MOV, AVI — the audio track is transcribed, e.g.
+  from meeting screen recordings) — resumable uploads, imported as normal meetings
 - ⚡ **Live transcription** — rolling transcription while the meeting runs (opt-in)
 - 🔊 **Audio enhancement** — optional local noise reduction with adjustable
   profiles; enhanced and original versions always available side by side
