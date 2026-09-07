@@ -73,27 +73,34 @@ picks the right package manager for your distribution automatically.
 
 > **Other Linux distributions** (e.g. openSUSE, NixOS): everything works the
 > same way, but you need to install `ffmpeg` and PortAudio with your package
-> manager first — the installer does not know those package managers yet. The web UI is **prebuilt** in the repository, so a normal install needs
-**no Node/npm**. `install.sh` shows exactly what it will do and only adds what is
-missing: the system packages `ffmpeg` + PortAudio, **Python 3.12 via `uv`**, and the
-locked Python dependencies. It then initializes storage and starts the service.
+> manager first — the installer does not know those package managers yet.
 
-Open **http://127.0.0.1:8765/** in your browser.
+The web UI is **prebuilt** in the repository, so a normal install needs **no
+Node/npm**. `install.sh` shows exactly what it will do and only adds what is
+missing: the system packages `ffmpeg` + PortAudio, **Python 3.12 via `uv`**, and
+the locked Python dependencies. It then initializes storage and starts the
+service.
 
-On first start the UI shows a short **setup assistant**: it downloads the speech
-recognition model (one-time, with explicit confirmation) and sets up the local AI
-model (Ollama-based) — or simply tells you the one command to run. The AI step is
-skippable, and existing installations never see the assistant again.
+Open **http://127.0.0.1:8765/** in your browser. On first start the UI shows a
+short **setup assistant** (model downloads with your explicit confirmation, AI
+step skippable, existing installations never see it again).
 
-| Flag | Effect |
+**Which command do you need?** (all copy & paste)
+
+| Command | What you get |
 |---|---|
-| `--with-models` | Also download the live ASR model (network required) |
-| `--with-ollama` | Also install Ollama (the AI-model runtime) and start it |
-| `--no-start` | Install + initialize only; do not start the service |
+| `./install.sh` | The app — nothing else. Models are downloaded in the setup wizard when you want them. |
+| `./install.sh --with-models` | App + live transcription model (~600 MB, only needed for live subtitles) |
+| `./install.sh --with-ollama` | App + Ollama (the local AI runtime, installed & started — but **without** any AI model yet) |
+| `./install.sh --with-ollama --with-models` | All of the above combined |
+| `./install.sh --no-start` | Install and initialize only; do not start the service |
 
-By default **no models are downloaded** — you can fetch them on demand from the UI
-at any time, and the full pipeline even runs without any AI server
-(`MA_LLM_MOCK=true`).
+> **About models:** `--with-ollama` installs the Ollama *program*, not AI models.
+> The transcription model — and optionally the AI model for analysis, questions and
+> chat — are downloaded separately, later, in the setup wizard (first start) or the
+> model settings, each with your explicit confirmation and visible progress. You can
+> also skip AI entirely: the full pipeline works without any AI server.
+> (`MA_LLM_MOCK=true` runs it with a mock model, useful for trying things out).
 
 > Developers working from source (Node/npm, test suite, `npm run dev`) should use
 > the [Installation](#️-installation--configuration-for-developers) section instead.
