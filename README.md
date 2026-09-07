@@ -1,8 +1,9 @@
 # meetas
 
 **Your meetings stay on your machine.** 🎙️ `meetas` records meetings from your
-microphone, transcribes them **offline** with local speech recognition, and
-analyzes them with **your own local LLMs** — no cloud, no accounts, no external
+microphone (or imports existing recordings), transcribes them **offline** with
+local speech recognition, and answers questions, extracts tasks, and analyzes
+everything with **your own local LLMs** — no cloud, no accounts, no external
 AI services.
 
 <p align="center">
@@ -13,17 +14,47 @@ AI services.
 
 ## ✨ Features
 
+**Capture**
 - 🎙️ **Record meetings** — start, pause, resume, stop; everything stored crash-safely
-- 📝 **Offline transcription** — local ASR, automatic language detection (de/en), model choice per meeting
-- 🤖 **Analyze with local LLMs** — structured 9-section analysis (summary, topics, decisions, tasks, …) where every claim is anchored to the transcript — nothing is invented
-- 🔎 **Search meetings** — instant full-text search over all transcripts
-- 💬 **Ask questions** — grounded, source-anchored answers (RAG) to any meeting
-- 👥 **Speaker recognition** — local speaker diarization (opt-in)
+- 📥 **Import existing recordings** — WAV, MP3, M4A, FLAC, OGG, OPUS, AAC (and
+  video files) — resumable uploads, imported as normal meetings
 - ⚡ **Live transcription** — rolling transcription while the meeting runs (opt-in)
-- ✅ **Manage tasks** — extract and track tasks from meetings
-- 🏷️ **Tags & markers** — organize meetings, mark important moments, edit transcripts with version history
-- 📤 **Export** — Markdown, TXT, JSON, HTML (PDF/DOCX with clean fallback)
-- 💾 **Backups** — consistent local backup & restore
+- 🔊 **Audio enhancement** — optional local noise reduction with adjustable
+  profiles; enhanced and original versions always available side by side
+
+**Transcription**
+- 📝 **Offline ASR** — local models from tiny to large-v3-turbo (faster-whisper)
+  plus Parakeet for live; the language is auto-detected for **any language your
+  selected model supports** — including code-switched meetings, per segment
+
+**AI (all local)**
+- 🤖 **Analyze meetings** — structured 9-section analysis (summary, topics,
+  decisions, tasks, …) where every claim is anchored to the transcript —
+  nothing is invented
+- 💬 **Ask & chat** — grounded questions with real transcript citations (and an
+  evidence level so you always see how solid the answer is), scoped to one
+  meeting, a project, or several meetings; plus a general chat that never
+  touches your meeting data
+- ✨ **Auto title & tags** — let the local LLM suggest a title and tags for you
+- 👥 **Speaker recognition** — local speaker diarization, speakers are
+  renamable (opt-in)
+
+**Organize & act**
+- 📂 **Projects** — group meetings and documents (PDF, DOCX, ODT, XLSX, PPTX,
+  TXT, MD, CSV); documents are indexed and become searchable & askable
+- 🔎 **Search** — instant full-text + local hybrid (vector) search over
+  transcripts and project documents
+- ✅ **Tasks** — extract tasks from a meeting, central overview, history, archive
+- 📊 **Cross-meeting insights** — compare meetings, multi-meeting digest
+  (fully offline), recurring topics, and a timeline of your activity
+- 🏷️ **Tags & markers** — organize meetings, mark important moments, edit
+  transcripts with full version history
+- 🗑️ **Trash** — soft delete with restore; permanent deletion only when you say so
+
+**Output**
+- 📤 **Export** — Markdown, TXT, JSON, HTML (PDF/DOCX with clean fallback),
+  with selectable sections
+- 💾 **Backups** — consistent local backup & restore with dry-run preview
 - 🔒 **Data stays local** — no cloud, no telemetry, no network by default
 
 ---
@@ -59,14 +90,14 @@ at any time, and the full pipeline even runs without any AI server
 (`MA_LLM_MOCK=true`).
 
 > Developers working from source (Node/npm, test suite, `npm run dev`) should use
-> the [Installation](#-installation--configuration-for-developers) section instead.
+> the [Installation](#installation--configuration-for-developers) section instead.
 
 ---
 
 ## 🔒 Privacy
 
-- **All data stays on your machine** — recordings, transcripts, and analyses never
-  leave your computer.
+- **All data stays on your machine** — recordings, transcripts, documents, and
+  analyses never leave your computer.
 - **No cloud, no accounts, no telemetry.**
 - **Network is disabled by default** (`network_allowed=false`). Any model download
   is a conscious, explicitly confirmed step.
@@ -80,14 +111,14 @@ at any time, and the full pipeline even runs without any AI server
 ## ⚙️ How it works
 
 ```text
-🎙️ Recording          microphone audio, crash-safe 1-second chunks
+🎙️ Recording / 📥 Import
      ↓
-📝 Transcription      offline ASR (local model), auto de/en
+📝 Transcription      offline ASR (local model), auto language detection
      ↓
-🤖 Local analysis     your local LLM, 9 structured sections,
-                      every claim anchored to the transcript
+🤖 Local AI           9-section analysis, titles & tags, tasks,
+                      grounded Q&A — all anchored to the transcript
      ↓
-🔎 Search & questions full-text search + grounded RAG
+📂 Organize           projects, documents, tags, markers, trash
      ↓
 📤 Export / backup    Markdown, TXT, JSON, HTML · local backups
 ```
@@ -96,26 +127,42 @@ A typical workflow:
 
 1. **Consent** — acknowledge the privacy notice once (required before the first
    recording).
-2. **Record** — start a meeting, pause/resume as needed, then stop.
+2. **Record or import** — start a meeting (pause/resume as needed), or upload an
+   existing audio file.
 3. **Transcribe** — run offline ASR (model download is confirmation-gated if needed).
-4. **Optional stages** — speaker diarization, local embeddings, live transcription.
-5. **Analyze** — trigger a structured local-LLM analysis.
-6. **Search & ask** — search or ask grounded questions over the transcript.
-7. **Export / backup** — export the result and/or take a local backup.
+4. **Optional stages** — speaker diarization, audio enhancement, local embeddings,
+   live transcription.
+5. **Analyze** — trigger a structured local-LLM analysis and/or auto title & tags.
+6. **Search, ask, chat** — search, ask grounded questions, or chat.
+7. **Organize & act** — projects, tags, markers, tasks.
+8. **Export / backup** — export the result and/or take a local backup.
 
 ---
 
 ## 🤖 Local AI
 
-**Transcription (ASR)** runs fully offline with local models
-(`faster-whisper`, Parakeet), with automatic language detection.
+**Transcription (ASR)** runs fully offline with local models. The UI offers a
+small, honest catalog: faster-whisper sizes from `tiny` (~75 MB) up to
+`large-v3-turbo`, plus the Parakeet TDT 0.6B int8 adapter for live transcription.
+Each entry shows size, runtime, and language coverage; you can benchmark ASR
+models and choose per meeting.
 
-**Analysis** uses an **already-running local LLM server** with an
-OpenAI-compatible `/v1` interface. **Ollama is the recommended runtime** —
-`./install.sh --with-ollama` installs and starts it. Any other OpenAI-compatible
-server (e.g. llama.cpp) works as well. The app **never starts or loads** an LLM
-itself — the server is an external process, reachable only over loopback, and a
-real analysis runs only when you trigger one.
+**Analysis, questions, and chat** use an **already-running local LLM server** with
+an OpenAI-compatible `/v1` interface. **Ollama is the recommended runtime** —
+`./install.sh --with-ollama` installs and starts it, and the UI can pull Ollama
+models with visible progress (always confirmation-gated). Any other
+OpenAI-compatible server (e.g. llama.cpp) works as well. The app **never starts or
+loads** an LLM itself — the server is an external process, reachable only over
+loopback, and a real analysis runs only when you trigger one.
+
+There are two deliberately separate chat modes:
+
+- **Grounded Q&A (RAG)** — the answer must come from retrieved transcript segments
+  and cite them (`[n]` markers, segment/timestamp). The response carries an
+  evidence level (`grounded` / `partial` / `none`) so you always see how solid it
+  is. If the transcript doesn't contain the answer, it says exactly that.
+- **General chat** — plain chat with your local LLM that *deliberately* retrieves
+  nothing, so it can never answer with your meeting data.
 
 The analysis is strict JSON with nine sections (`kurzfassung`, `themen`,
 `entscheidungen`, `aufgaben`, `offene_fragen`, `naechste_schritte`, `risiken`,
@@ -123,6 +170,9 @@ The analysis is strict JSON with nine sections (`kurzfassung`, `themen`,
 source (`segment_id` / `sprecher` / `timestamp`), and missing values are stored as
 "not specified" — **never invented**. If the server is busy or absent, you get a
 clear `503` after bounded retries.
+
+**Model management in the UI:** see which ASR and LLM models are installed, test
+your LLM connection, pull Ollama models — all without leaving the browser.
 
 **Mock mode for development:** `MA_LLM_MOCK=true` (or `--mock` on the CLI) runs a
 deterministic mock LLM with no server call at all.
@@ -137,6 +187,7 @@ The most relevant settings (full list in [`.env.example`](./.env.example)):
 | `MA_LLM_MOCK` | `false` | Use the deterministic mock LLM (no server call) |
 | `MA_ASR_MODEL` | `small` | Final/batch ASR model |
 | `MA_LIVE_ASR_MODEL` | `parakeet-tdt-0.6b-v3-int8` | Live ASR model (opt-in) |
+| `MA_ASR_LANGUAGE` | auto | Force the transcription language (empty = auto-detect) |
 
 `model_profiles` (in `config.json` or `MA_MODEL_PROFILES` JSON) can point each role
 — `live` / `offline` / `sprecher` / `analyse` / `embeddings` / `reranking` — at a
@@ -163,6 +214,8 @@ different local model/endpoint.
   A lock + PID file enforces a single instance.
 - **Consent-gated** — recording starts only after a one-time, persisted privacy
   notice.
+- **Safe deletion** — meetings and documents move to the trash first; restoring is
+  one click, permanent deletion is explicit.
 
 ---
 
@@ -174,7 +227,7 @@ different local model/endpoint.
 |---|---|---|
 | **Python 3.12** | Runtime | `uv` uses/provisions it automatically |
 | **uv** | venv + dependencies + lockfile | https://docs.astral.sh/uv/ |
-| **ffmpeg** | Assemble chunks into the original recording | External system binary |
+| **ffmpeg** | Assemble chunks / import & enhance audio | External system binary |
 | **PortAudio** (`libportaudio2`) | Microphone capture via `sounddevice` | External system library |
 | **A local LLM server** (optional) | OpenAI-compatible `/v1` endpoint (e.g. llama.cpp, Ollama) | External, already running; the app never starts one |
 | **Node.js + npm** | One-time build of the React UI (`ui/`) | Build-time only |
@@ -229,8 +282,10 @@ No credentials are required. All settings:
 | `MA_SAMPLE_RATE` / `MA_CHANNELS` | `16000` / `1` | Capture defaults |
 | `MA_ASR_MODEL` | `small` | Final/batch ASR model |
 | `MA_LIVE_ASR_MODEL` | `parakeet-tdt-0.6b-v3-int8` | Live ASR model (opt-in) |
+| `MA_ASR_LANGUAGE` | auto | Force the transcription language (empty = auto-detect) |
 | `MA_LIVE_TRANSCRIPTION` | `false` | Rolling-window live transcription |
 | `MA_SPEAKER_DIARIZATION` | `false` | Local speaker diarization |
+| `MA_MIC_ENHANCEMENT` | `false` | Optional local audio enhancement (noise reduction) |
 | `MA_LLM_BASE_URL` | `http://127.0.0.1:8081/v1` | Local OpenAI-compatible LLM server |
 | `MA_OLLAMA_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama OpenAI-compatible endpoint |
 | `MA_LLM_MODEL` | `qwen3.8-27b-q4kxl` | Must match a model id your server reports under `/v1/models` |
@@ -248,12 +303,17 @@ The core is an **independent OS process** (double-fork + `setsid`) that survives
 UI crash and binds to `127.0.0.1` only.
 
 ```bash
-meeting-core init        # create storage + run Alembic migrations + recovery
-meeting-core devices     # list input devices
-meeting-core serve       # run in the foreground
-meeting-core daemon      # run as an independent daemon
-meeting-core status      # show status
-meeting-core stop        # stop the daemon
+meeting-core init          # create storage + run Alembic migrations + recovery
+meeting-core devices       # list input devices
+meeting-core serve         # run in the foreground
+meeting-core daemon        # run as an independent daemon
+meeting-core status        # show status
+meeting-core stop          # stop the daemon
+meeting-core restart       # restart the daemon
+meeting-core recovery      # run crash recovery manually
+meeting-core models        # ASR model status
+meeting-core download-model --confirm   # download an ASR model
+meeting-core llm           # show LLM status (no request)
 ```
 
 Per-meeting CLI examples:
@@ -294,6 +354,7 @@ is stamped, not re-migrated).
 │   ├── events.jsonl                 # pause/resume/stop events
 │   ├── meta.json
 │   ├── original.wav                 # assembled atomically, read-only (0444)
+│   ├── enhanced.wav                 # optional enhanced copy (noise reduction)
 │   └── in_progress                  # marker while recording
 ├── exports/
 ├── logs/core.log
@@ -335,8 +396,11 @@ curl -s -X POST localhost:8765/meetings -d '{"title":"Standup"}'
 Key endpoints: `POST /meetings` (start), `POST /meetings/{id}/pause|resume|stop`,
 `POST /meetings/{id}/transcribe`, `POST /meetings/{id}/analyze`,
 `POST /meetings/{id}/diarize`, `GET /search?q=`, `GET /ask?q=` / `POST /chat`
-(grounded RAG), `GET /tasks`, `POST /meetings/{id}/export`,
-`POST /backup` · `GET /backup` · `POST /backup/restore`,
+(grounded RAG), `POST /chat/general` (LLM chat without meeting data),
+`GET /projects` + `POST /uploads` (projects & imports),
+`GET /meetings/compare` · `/multi-summary` · `/recurring-topics` · `/timeline`
+(cross-meeting insights), `GET /tasks`, `POST /meetings/{id}/export`,
+`POST /backup` · `GET /backup` · `POST /backup/restore`, `GET /trash`,
 `POST /models/asr/download` (confirmed, local).
 
 ### Language (de/en)
@@ -346,8 +410,9 @@ Three **independent** language axes:
 1. **Interface language** — German (default) or English, switchable in the UI
    (persisted in the browser). The UI also sends it as `Accept-Language`, so the
    core localises its **error messages** and **consent notice** to match.
-2. **Transcription language** — auto-detected per meeting (de/en), or forced
-   globally via `MA_ASR_LANGUAGE` or per meeting in the UI.
+2. **Transcription language** — auto-detected per meeting for whatever languages
+   the selected ASR model covers, or forced globally via `MA_ASR_LANGUAGE` or per
+   meeting in the UI.
 3. **Analysis language** — chosen per meeting, independent of the other two.
 
 Switching the interface language never changes what is transcribed or analysed.
