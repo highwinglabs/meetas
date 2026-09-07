@@ -12,8 +12,8 @@ Grounding contract (Phase 8 rework, relaxed for small models):
   missing the answer is returned as ``evidence="partial"`` -- never replaced
   by a misleading "no sufficient evidence" result.
 - Returned ``sources``: grounded answers list exactly the cited segments (the
-  [n] markers in the text refer to them); partial answers list the top
-  retrieved hits as context passages.
+  [n] markers in the text refer to them); partial answers list ALL the
+  retrieved hits as context passages (no arbitrary cap).
 """
 from __future__ import annotations
 
@@ -236,17 +236,16 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
             result = result2
         else:
             # Still unverifiable. The answer is based exclusively on the
-            # retrieved context, so present it with the top retrieved hits as
+            # retrieved context, so present it with ALL the retrieved hits as
             # context passages and a warning -- never as "no information
-            # found". Only a handful are listed (they are not per-claim
-            # sources, so a long dump would be misleading).
+            # found", and with no arbitrary cap (3 or 30, whatever was found).
             best = answer if answer.strip() else answer2
             # The markers cannot be mapped to the sources list here, so the
             # raw internal ids are simply not shown.
             best = re.sub(r"\[seg:[A-Za-z0-9]+\]", "", best).strip()
             return {
                 "answer": best or "(leere Antwort)",
-                "sources": [_source_from_hit(h) for h in hits[:8]],
+                "sources": [_source_from_hit(h) for h in hits],
                 "citations": [],          # none valid
                 "invalid_citations": [c for c in citations if c not in valid_ids],
                 "grounded": False,
