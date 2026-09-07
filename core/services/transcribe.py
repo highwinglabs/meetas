@@ -8,7 +8,7 @@ from core.store.db import session_scope
 from core.transcribe.processor import TranscriptionProcessor
 from core.store.models import Meeting
 from core.logging_setup import get_logger
-from core.services._common import UnknownMeetingError
+from core.services._common import UnknownMeetingError, friendly_job_error
 
 log = get_logger("ma.service")
 
@@ -111,7 +111,7 @@ class TranscriptionMixin:
                     job = JobQueue.get_or_create(s, meeting_id, "transcribe")
                     if job.status != "failed":
                         job.retries = (job.retries or 0) + 1
-                    JobQueue.mark_failed(s, job, str(exc))
+                    JobQueue.mark_failed(s, job, friendly_job_error(exc))
                     meeting = s.get(Meeting, meeting_id)
                     if meeting is not None:
                         meeting.status = "failed"

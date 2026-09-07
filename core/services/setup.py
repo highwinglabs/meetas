@@ -121,6 +121,22 @@ class SetupMixin:
         log.info("setup_completed model=%s", model)
         return {"setup_completed": True, "setup_version": SETUP_VERSION}
 
+    def setup_skip(self) -> dict:
+        """Deliberately defer setup: mark it complete without the ASR model.
+
+        Backs the wizard's "Später" button on the ASR screen. Transcription
+        stays gracefully unavailable (clear error on demand, model can be
+        downloaded later under Settings → Models) instead of trapping the
+        user in the wizard.
+        """
+        with self._config_lock:
+            self.config.setup_completed = True
+            self.config.setup_version = SETUP_VERSION
+            self.config.save()
+        log.info("setup_skipped asr_model=%s (not installed yet)",
+                 str(self.config.quality_asr_model or "").strip() or "<unset>")
+        return {"setup_completed": True, "setup_version": SETUP_VERSION}
+
     def setup_maybe_auto_complete(self) -> bool:
         """Migration for existing installations.
 

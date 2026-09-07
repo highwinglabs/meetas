@@ -295,7 +295,7 @@ def restore_backup(cfg: Config, backup_id: str, confirm: bool = False,
 
     integrity = _integrity(path)
     if integrity != "ok" or not _schema_is_compatible(path):
-        raise ValueError(f"Backup ist besch&auml;digt (integrity_check={integrity})")
+        raise ValueError(f"Backup ist beschädigt (integrity_check={integrity})")
 
     plan = {
         "backup_id": backup_id, "path": str(path), "kind": rec.kind,
@@ -305,7 +305,7 @@ def restore_backup(cfg: Config, backup_id: str, confirm: bool = False,
     }
     if not confirm:
         return {**plan, "applied": False,
-                "note": "Dry-Run: nichts ge&auml;ndert. Mit confirm=true ausf&uuml;hren."}
+                "note": "Dry-Run: nichts geändert. Mit confirm=true ausführen."}
 
     # L16: re-validate the caller precondition immediately before any file is
     # written or the live DB is swapped. The service-level check that opened

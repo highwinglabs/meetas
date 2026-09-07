@@ -13,7 +13,29 @@ from zoneinfo import ZoneInfo
 
 from core.analysis import schema
 from core.config import get_config
+from core.llm.base import LLMError
+from core.providers.base import ASRError
+from core.security.secrets import NetworkBlockedError
 from core.store.models import Task
+
+
+def friendly_job_error(exc: Exception) -> str:
+    """Map an exception to a concise, user-facing message for job status.
+
+    The app's own error classes (ASRError incl. ModelNotReadyError,
+    LLMError incl. ServerBusyError, NetworkBlockedError) already carry
+    localized German text, so they pass through unchanged.  Third-party
+    exceptions (huggingface_hub, CTranslate2, …) would leak raw English
+    internals into the UI; they are replaced with a generic hint while the
+    full traceback stays in the server log.
+    """
+    if isinstance(exc, (ASRError, LLMError, NetworkBlockedError)):
+        return str(exc)
+    return (
+        f"Unerwarteter Fehler ({type(exc).__name__}). Bitte die "
+        "ASR-Modell-Installation prüfen (Einstellungen → Modelle); weitere "
+        "Details im Server-Log."
+    )
 
 
 def _display_zone() -> ZoneInfo:

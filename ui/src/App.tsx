@@ -77,7 +77,9 @@ export default function App() {
   const refreshSetup = useCallback(async () => {
     try {
       const c = await api.setupCheck();
-      setSetupNeeded(!c.setup_completed || !c.asr.installed);
+      // Respect a deliberate completion or "Später" skip; the ASR model
+      // is re-checked at point of use (transcribe → 409 with a clear hint).
+      setSetupNeeded(!c.setup_completed);
     } catch {
       setSetupNeeded(false);
     }

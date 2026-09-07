@@ -11,7 +11,7 @@ from core.tasks import extract_tasks
 from core.store.db import session_scope
 from core.store.models import Meeting, ProcessingJob
 from core.logging_setup import get_logger
-from core.services._common import UnknownMeetingError
+from core.services._common import UnknownMeetingError, friendly_job_error
 
 log = get_logger("ma.service")
 
@@ -269,7 +269,7 @@ class PipelineMixin:
             with session_scope() as s:
                 job = JobQueue.get_or_create(s, meeting_id, stage)
                 job.retries = (job.retries or 0) + 1
-                JobQueue.mark_failed(s, job, str(exc))
+                JobQueue.mark_failed(s, job, friendly_job_error(exc))
                 if stage == "transcribe":
                     m = s.get(Meeting, meeting_id)
                     if m is not None:

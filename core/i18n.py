@@ -107,7 +107,7 @@ _ERROR_CATALOG: list[tuple[str, str]] = [
     ("Audio-Datei konnte für Parakeet nicht gelesen werden: {0}", "Audio file could not be read for Parakeet: {0}"),
     ("Audio-Datei nicht gefunden: {0}", "Audio file not found: {0}"),
     ("Audioverarbeitung dauerte zu lange und wurde beendet.", "Audio processing took too long and was terminated."),
-    ("Backup ist besch&auml;digt (integrity_check={0})", "Backup is corrupt (integrity_check={0})"),
+    ("Backup ist beschädigt (integrity_check={0})", "Backup is corrupt (integrity_check={0})"),
     ("Backup liegt außerhalb des lokalen Backup-Speichers.", "Backup is outside the local backup storage."),
     ("Backup-Snapshot ist ungültig (size={0}, integrity={1}); es wurde kein Backup erstellt.",
      "Backup snapshot is invalid (size={0}, integrity={1}); no backup was created."),

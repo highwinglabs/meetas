@@ -39,7 +39,7 @@ export default function ProjectsPanel({ onOpenMeeting }: { onOpenMeeting: (id: s
 
   const fileStatusLabel = (file: ProjectDetail["files"][number]) => {
     if (file.kind !== "document") return t("project.file_meeting");
-    if (file.extraction_status === "ready") return t("project.file_ready", { n: file.chunks ?? 0 });
+    if (file.extraction_status === "ready") return t((file.chunks ?? 0) === 1 ? "project.file_ready_one" : "project.file_ready", { n: file.chunks ?? 0 });
     if (file.extraction_status === "failed") return file.extraction_error || t("project.file_unreadable");
     return t("project.file_preparing");
   };

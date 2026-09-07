@@ -267,14 +267,6 @@ export default function MeetingDetail({
     setWaveform([]);
     setPreviewUrl(null);
     setAudioEditorOpen(false);
-    api.waveform(id).then((wave) => {
-      if (cancelled) return;
-      setWaveform(wave.peaks);
-      setWaveformDuration(wave.duration_s);
-      setAudioRange({ start: 0, duration: Math.min(12, Math.max(1, wave.duration_s)) });
-      setWaveformZoom(1);
-      setWaveformViewStart(0);
-    }).catch(() => undefined);
     api.settings().then((settings) => {
       if (cancelled || audioProfileHydratedFor.current === id) return;
       const profileName = settings.audio_enhancement_profile ?? "meeting";
@@ -283,6 +275,26 @@ export default function MeetingDetail({
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [id]);
+
+  // The initial waveform fetch happens only once the detail load proves the
+  // meeting actually has source audio; without it the endpoint would just
+  // answer 400. The dependency is a stable primitive so periodic detail
+  // re-loads do not re-trigger the fetch (which would also reset the editor
+  // view).
+  const audioFilePath = detail && detail.id === id ? detail.recording?.original_path ?? null : null;
+  useEffect(() => {
+    if (!audioFilePath) return;
+    let cancelled = false;
+    api.waveform(id).then((wave) => {
+      if (cancelled) return;
+      setWaveform(wave.peaks);
+      setWaveformDuration(wave.duration_s);
+      setAudioRange({ start: 0, duration: Math.min(12, Math.max(1, wave.duration_s)) });
+      setWaveformZoom(1);
+      setWaveformViewStart(0);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [id, audioFilePath]);
 
   const waveformViewDuration = Math.max(0.05, waveformDuration / waveformZoom);
   const maxWaveformViewStart = Math.max(0, waveformDuration - waveformViewDuration);

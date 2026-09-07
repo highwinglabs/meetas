@@ -457,6 +457,11 @@ def setup_complete():
     return _handle(get_service().setup_complete)
 
 
+@router.post("/setup/skip")
+def setup_skip():
+    return _handle(get_service().setup_skip)
+
+
 @router.post("/meetings/{meeting_id}/transcribe")
 def transcribe(meeting_id: str, body: TranscribeRequest):
     return _handle(

@@ -45,8 +45,8 @@ export default function AudioProfileSliders({
             <p className="audio-profile-hint">{t("audio.auto_hint")}</p>
           ) : <>
             <div className="audio-selection-fields">
-              <label><span>{t("audio.start")}</span><input type="number" min={0} max={Math.max(0, waveformDuration - 1)} step={0.01} value={audioRange.start} onChange={(e) => onSelectionBoundaryChange("start", Number(e.target.value))} /> s</label>
-              <label><span>{t("audio.end")}</span><input type="number" min={Math.min(waveformDuration, audioRange.start + 1)} max={waveformDuration} step={0.01} value={Math.min(waveformDuration, audioRange.start + audioRange.duration)} onChange={(e) => onSelectionBoundaryChange("end", Number(e.target.value))} /> s</label>
+              <label><span>{t("audio.start")}</span><input type="number" min={0} max={Math.max(0, waveformDuration - 1)} step={0.01} value={Number(audioRange.start.toFixed(2))} onChange={(e) => onSelectionBoundaryChange("start", Number(e.target.value))} /> s</label>
+              <label><span>{t("audio.end")}</span><input type="number" min={Math.min(waveformDuration, audioRange.start + 1)} max={waveformDuration} step={0.01} value={Number(Math.min(waveformDuration, audioRange.start + audioRange.duration).toFixed(2))} onChange={(e) => onSelectionBoundaryChange("end", Number(e.target.value))} /> s</label>
               <span className="dim">{t("audio.drag_hint")}</span>
             </div>
             <div className="audio-selection-actions">

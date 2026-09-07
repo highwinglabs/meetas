@@ -160,6 +160,7 @@ export const api = {
     }),
   setupDownloadStatus: () => request<SetupDownloadStatus>("/setup/download/status"),
   setupComplete: () => request<{ setup_completed: boolean; setup_version: number }>("/setup/complete", { method: "POST" }),
+  setupSkip: () => request<{ setup_completed: boolean; setup_version: number }>("/setup/skip", { method: "POST" }),
 
   startTranscription: (id: string, language?: string | null, model?: string | null, allow_download: boolean = false) =>
     request<{ meeting_id: string; status: string; job_id: string }>(`/meetings/${id}/transcribe/start`, {

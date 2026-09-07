@@ -163,6 +163,20 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     }
   };
 
+  // Defer the ASR model entirely: marks setup complete without it, so the
+  // user reaches the app. Transcription stays disabled with a clear hint.
+  const deferAsr = async () => {
+    setBusy(true); setError(null);
+    try {
+      await api.setupSkip();
+      setScreen("done");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copyHint = async (hint: string) => {
     try {
       await navigator.clipboard.writeText(hint);
@@ -251,7 +265,9 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
                 <button className="btn primary" disabled={!confirmAsr || busy} onClick={() => void startAsr()}>
                   {busy ? t("setup.starting") : t("setup.btn_download")}
                 </button>
+                <button className="btn" disabled={busy} onClick={() => void deferAsr()}>{t("setup.later")}</button>
               </div>
+              <p className="dim">{t("setup.asr_later_note")}</p>
             </>
           )}
         </section>
