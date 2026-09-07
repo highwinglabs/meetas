@@ -106,7 +106,7 @@ def create_app(service: MeetingService,
         yield  # startup: service already bootstrapped by caller
         service.close()  # shutdown: finalize active sessions
 
-    app = FastAPI(title="meeting-assistant core", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="meetas core", version=__version__, lifespan=lifespan)
     app.add_middleware(_LanguageMiddleware)
     app.include_router(rest.router)
     dist = _resolve_ui_dist(ui_dist)

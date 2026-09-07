@@ -1,5 +1,5 @@
 [Unit]
-Description=Local Meeting Assistant Core
+Description=Meetas Core (local, privacy-first)
 
 [Service]
 Type=simple

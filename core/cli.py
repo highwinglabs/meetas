@@ -231,7 +231,7 @@ def cmd_features(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="meeting-core", description="Meeting Assistant Core (local, privacy-first)")
+    p = argparse.ArgumentParser(prog="meeting-core", description="Meetas Core (local, privacy-first)")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 

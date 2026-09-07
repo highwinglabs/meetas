@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install.sh - one-command, reviewable installer for the Meeting Assistant (Linux).
+# install.sh - one-command, reviewable installer for Meetas (Linux).
 #
 # Installs only what is actually missing and shows what it will do first:
 #   1. system packages : ffmpeg + PortAudio   (prints them, asks before using sudo)
@@ -21,7 +21,7 @@ NO_START=0
 
 usage() {
   cat <<'EOF'
-install.sh - Meeting Assistant installer (Linux)
+install.sh - Meetas installer (Linux)
 
 Usage: ./install.sh [options]
 
@@ -61,7 +61,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-echo "${B}Meeting Assistant - Installation${O}"
+echo "${B}Meetas - Installation${O}"
 echo "Target: ${ROOT}"
 echo
 
