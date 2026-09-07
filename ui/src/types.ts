@@ -367,6 +367,10 @@ export interface RagAnswer {
   citations: string[];
   invalid_citations?: string[];
   grounded: boolean;
+  /** "grounded" = cited real segments; "partial" = answer exists but
+   *  citations could not be verified (shown with a warning); "none" =
+   *  nothing found or the model explicitly declined. */
+  evidence?: "grounded" | "partial" | "none";
   hits?: number;
   model?: string;
 }

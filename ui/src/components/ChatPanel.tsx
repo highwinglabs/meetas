@@ -43,7 +43,11 @@ export default function ChatPanel({
             <div className="chat-turn-actions"><button className="btn small danger" type="button" onClick={() => onDeleteMessage(index)}>{t("chat.delete")}</button></div>
             <div className="rag">
               <div className={"note " + (message.answer.grounded ? "ok" : "warn")}>
-                {message.answer.grounded ? t("chat.grounded") : t("chat.no_info")}
+                {message.answer.grounded
+                  ? t("chat.grounded")
+                  : message.answer.evidence === "partial"
+                    ? t("chat.partial")
+                    : t("chat.no_info")}
               </div>
               <p className="rag-answer">{message.answer.answer}</p>
               {message.answer.sources.length > 0 && <div className="rag-sources">

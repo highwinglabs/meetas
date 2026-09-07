@@ -4,12 +4,13 @@ Retrieves the top-``k`` segments for a question (hybrid search), builds a compac
 numbered context, and asks the local LLM to answer **only** from that context,
 citing the source segment ids.
 
-Grounding contract (Phase 8 rework):
+Grounding contract (Phase 8 rework, relaxed for small models):
 - An answer is ``grounded`` **only** when it cites at least one segment id that
-  actually exists in the retrieved hits. A fluent answer with no valid citation
-  is treated as *not answered* and replaced with an explicit "no sufficient
-  evidence" message -- ``grounded=True`` is never granted merely because the
-  model produced some text.
+  actually exists in the retrieved hits. Small local models often answer well
+  but forget the ``[seg:<id>]`` markers, so a citation-less answer first gets
+  one correction round; if citations are still missing the answer is returned
+  as ``evidence="partial"`` (answer + retrieved hits as sources + warning) --
+  it is never replaced by a misleading "no sufficient evidence" result.
 - Returned ``sources`` are retrieved hits (cited segments first; remaining
   context is included for transparency). Each carries meeting, date, speaker,
   timestamp and a jump target so the UI can navigate straight to the line.
@@ -36,6 +37,18 @@ _SYSTEM = (
 
 _NOT_ANSWERED = "Nicht im Transkript beantwortet."
 _NO_EVIDENCE = "Keine ausreichende Information im Transkript gefunden."
+
+# Evidence levels returned alongside every answer so the UI can distinguish
+# "verified with citations" from "answer exists but could not be verified"
+# from "nothing found at all" (the last one is the only truly empty result).
+#   "grounded" - at least one citation resolves to a retrieved segment
+#   "partial"  - an answer exists (based on the retrieved context) but no
+#                citation could be verified; shown with a warning, never
+#                confused with an empty result
+#   "none"     - no hits, or the model explicitly declined
+EVIDENCE_GROUNDED = "grounded"
+EVIDENCE_PARTIAL = "partial"
+EVIDENCE_NONE = "none"
 
 
 def _fmt_ts(s: float | None) -> str:
@@ -124,16 +137,35 @@ def _format_history(history: list[dict] | None, max_chars: int = 6000) -> str:
     return "\n".join(lines)
 
 
+def _build_cite_fix_prompt(context: str, conversation: str, query: str,
+                           draft: str, allowed_ids: list[str]) -> str:
+    """One-shot correction round for an answer that lacked usable citations."""
+    return (
+        f"{conversation}Kontext:\n{context}\n\nFrage: {query}\n\n"
+        "Deine Antwort war inhaltlich gut, enthielt aber keine gültigen "
+        "Quellenzitate. Formuliere sie NUR auf Basis des Kontexts neu und "
+        "zitiere jede belastbare Aussage mit dem exakten Marker [seg:<id>]. "
+        f"Erlaubte Ids: {', '.join(allowed_ids)}. "
+        "Gib NUR die finale Antwort aus.\n\n"
+        "Vorläufige Antwort:\n" + (draft or "")
+    )
+
+
 def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
                max_tokens: int | None = None,
                history: list[dict] | None = None) -> dict:
     """Answer `query` grounded in `hits`. Raises ``LLMError`` on LLM failure.
 
-    Returns ``{"answer", "sources", "citations", "grounded", ...}``. ``sources``
-    are retrieved segments with cited hits listed first. ``grounded`` is True
-    **only** when at least one citation resolves to an existing hit; otherwise
-    the answer is replaced with an explicit "no sufficient evidence" message
-    and ``grounded`` is False.
+    Returns ``{"answer", "sources", "citations", "grounded", "evidence", ...}``.
+    ``sources`` are retrieved segments with cited hits listed first.
+    ``grounded`` is True **only** when at least one citation resolves to an
+    existing hit. ``evidence`` tells the UI what to make of a non-grounded
+    result: small local models frequently answer well but forget the
+    ``[seg:<id>]`` markers, so after one citation-correction round the answer
+    is still presented (with all retrieved hits as sources and a warning) as
+    ``"partial"`` instead of being discarded as an empty "no sufficient
+    evidence" result. Only a truly empty retrieval or an explicit refusal is
+    ``"none"``.
     """
     if not hits:
         return {
@@ -141,6 +173,7 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
             "sources": [],
             "citations": [],
             "grounded": False,
+            "evidence": EVIDENCE_NONE,
             "context_chars": 0,
         }
 
@@ -166,6 +199,7 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
             "sources": [],
             "citations": [],
             "grounded": False,
+            "evidence": EVIDENCE_NONE,
             "context_chars": len(context),
             "model": result.model,
         }
@@ -175,17 +209,38 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
     valid_citations = [c for c in citations if c in valid_ids]
 
     if not valid_citations:
-        # The model produced text but cited nothing resolvable -> NOT grounded.
-        # Never present an ungrounded answer as an answer.
-        return {
-            "answer": _NO_EVIDENCE,
-            "sources": [],
-            "citations": [],          # none valid
-            "invalid_citations": [c for c in citations if c not in valid_ids],
-            "grounded": False,
-            "context_chars": len(context),
-            "model": result.model,
-        }
+        # Small local models often answer well but forget the [seg:<id>]
+        # markers. One correction round gets the model to re-state its answer
+        # with proper citations.
+        fix_prompt = _build_cite_fix_prompt(context, conversation, query,
+                                            answer, sorted(valid_ids))
+        result2 = llm.complete(fix_prompt, system=_SYSTEM,
+                               max_tokens=max_tokens)
+        model2 = result2.model or result.model
+        answer2 = visible_answer(result2.text or "")
+        citations2 = _extract_citations(answer2)
+        valid_citations2 = [c for c in citations2 if c in valid_ids]
+        if (answer2.strip().lower() != _NOT_ANSWERED.lower()
+                and valid_citations2):
+            answer = answer2
+            citations = valid_citations2
+            valid_citations = valid_citations2
+            result = result2
+        else:
+            # Still unverifiable. The answer is based exclusively on the
+            # retrieved context, so present it with the retrieved hits as
+            # sources and a warning -- never as "no information found".
+            best = answer if answer.strip() else answer2
+            return {
+                "answer": best,
+                "sources": [_source_from_hit(h) for h in hits],
+                "citations": [],          # none valid
+                "invalid_citations": [c for c in citations if c not in valid_ids],
+                "grounded": False,
+                "evidence": EVIDENCE_PARTIAL,
+                "context_chars": len(context),
+                "model": model2,
+            }
 
     # 3) Grounded: sources are exactly the validly-cited segments, cited order
     # first, then any remaining retrieved context (all still real segments).
@@ -199,6 +254,7 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
         "citations": valid_citations,
         "invalid_citations": [c for c in citations if c not in valid_ids],
         "grounded": True,
+        "evidence": EVIDENCE_GROUNDED,
         "context_chars": len(context),
-        "model": result.model,
+        "model": result.model,  # result is result2 when the fix round was used
     }

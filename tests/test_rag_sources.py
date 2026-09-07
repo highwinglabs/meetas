@@ -119,7 +119,10 @@ def test_every_source_is_a_real_retrieved_segment(make_service):
     assert [s["segment_id"] for s in out["sources"]][:2] == [seg_ids[0], seg_ids[1]]
 
 
-def test_answer_without_citation_is_not_grounded(make_service):
+def test_answer_without_citation_is_partial_not_no_info(make_service):
+    """A fluent answer without [seg:<id>] citations (even after the correction
+    round) must be presented with the retrieved hits as sources -- never as
+    'no sufficient information'."""
     svc, mid, _ = _build_meeting(
         make_service,
         [_seg(0.0, 2.0, "Alpha Projekt Plan.")],
@@ -128,12 +131,15 @@ def test_answer_without_citation_is_not_grounded(make_service):
     )
     out = svc.ask("Alpha Projekt?", meeting_id=mid)
     assert out["grounded"] is False
-    assert out["answer"] == rag_mod._NO_EVIDENCE
-    assert out["sources"] == []
+    assert out["evidence"] == "partial"
+    assert out["answer"] == "Ja, das ist sicher so."
+    assert out["sources"] and out["sources"][0]["meeting_id"] == mid
     assert out["citations"] == []
 
 
 def test_citation_of_missing_segment_is_not_grounded(make_service):
+    """A phantom citation can never count as grounding; the answer itself is
+    still shown (partial) with the real retrieved hits as sources."""
     svc, mid, seg_ids = _build_meeting(
         make_service,
         [_seg(0.0, 2.0, "Alpha Projekt Plan.")],
@@ -142,8 +148,9 @@ def test_citation_of_missing_segment_is_not_grounded(make_service):
     )
     out = svc.ask("Alpha Projekt?", meeting_id=mid)
     assert out["grounded"] is False
-    assert out["answer"] == rag_mod._NO_EVIDENCE
-    assert out["sources"] == []
+    assert out["evidence"] == "partial"
+    assert "INVENTEDID000000000000" not in [s["segment_id"] for s in out["sources"]]
+    assert out["sources"] and all(s["meeting_id"] == mid for s in out["sources"])
     assert "INVENTEDID000000000000" in out.get("invalid_citations", [])
 
 
@@ -293,9 +300,11 @@ def test_rag_scoped_sources_only_from_scoped_meeting(make_service):
         llm_text="So. [seg:%s]" % seg_a[0],   # cite A's id from within B2 scope
     )
     # The query still resolves B2's own segment so hits is non-empty; the cited
-    # A id is not among the scoped hits, so grounding must fail.
+    # A id is not among the scoped hits, so grounding must fail and the
+    # sources must stay strictly inside the B2 scope.
     out2 = svc2.ask("Projekt Strategie?", meeting_id=mid_b2)
     assert out2["grounded"] is False
-    assert out2["answer"] == rag_mod._NO_EVIDENCE
-    assert out2["sources"] == []
+    assert out2["evidence"] == "partial"
+    assert out2["sources"] and all(s["meeting_id"] == mid_b2 for s in out2["sources"])
+    assert all(s["segment_id"] in set(seg_b2) for s in out2["sources"])
     assert seg_a[0] in out2.get("invalid_citations", [])

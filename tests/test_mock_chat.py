@@ -10,10 +10,38 @@ from __future__ import annotations
 
 import json
 
-from core.llm import MockLLM
+from core.llm import LLMResult, MockLLM
 from core.search import rag as rag_mod
 
 from tests.test_rag_sources import _build_meeting, _seg
+
+
+def _hits():
+    return [
+        {"segment_id": "abc123", "meeting_id": "m1", "meeting_title": "Alpha",
+         "meeting_date": "2026-04-02", "speaker_id": "Sprecher 1",
+         "start_s": 0.0, "end_s": 2.0,
+         "text": "Wir planen das Alpha Projekt fuer Q2.",
+         "source_kind": "meeting"},
+        {"segment_id": "def456", "meeting_id": "m1", "meeting_title": "Alpha",
+         "meeting_date": "2026-04-02", "speaker_id": "Sprecher 1",
+         "start_s": 2.5, "end_s": 4.5,
+         "text": "Der Budgetrahmen bleibt unveraendert.",
+         "source_kind": "meeting"},
+    ]
+
+
+class _ScriptedLLM:
+    """Returns canned answers in order (last one repeats)."""
+
+    def __init__(self, answers):
+        self._answers = list(answers)
+        self.calls = 0
+
+    def complete(self, prompt, system=None, **opts):
+        self.calls += 1
+        text = self._answers[min(self.calls - 1, len(self._answers) - 1)]
+        return LLMResult(text=text, model="scripted-llm")
 
 
 def test_default_mock_grounded_chat_via_rag_answer():
@@ -36,6 +64,7 @@ def test_default_mock_grounded_chat_via_rag_answer():
     assert out["sources"][0]["segment_id"] == "abc123"
     assert "Alpha Projekt" in out["answer"]
     assert "[seg:abc123]" in out["answer"]
+    assert out["evidence"] == "grounded"
 
 
 def test_default_mock_document_hit_is_grounded():
@@ -52,12 +81,55 @@ def test_default_mock_document_hit_is_grounded():
     assert out["citations"] == ["docabc"]
     assert out["sources"][0]["source_kind"] == "document"
     assert "notizen.txt" in out["sources"][0]["file_name"]
+    assert out["evidence"] == "grounded"
 
 
 def test_default_mock_declines_without_context():
     out = rag_mod.rag_answer("Was wird geplant?", [], MockLLM())
     assert out["grounded"] is False
     assert out["sources"] == []
+    assert "Keine ausreichende Information" in out["answer"]
+    assert out["evidence"] == "none"
+
+
+def test_citationless_answer_gets_one_fix_round_and_becomes_grounded():
+    """Small models often answer well but forget the [seg:<id>] markers: the
+    first citation-less answer triggers exactly one correction round, and a
+    corrected, properly cited answer is accepted as grounded."""
+    llm = _ScriptedLLM([
+        "Es wird das Alpha Projekt fuer Q2 geplant.",  # no citation
+        "Es wird das Alpha Projekt fuer Q2 geplant [seg:abc123].",  # cited
+    ])
+    out = rag_mod.rag_answer("Was wird geplant?", _hits(), llm)
+    assert llm.calls == 2
+    assert out["grounded"] is True
+    assert out["evidence"] == "grounded"
+    assert out["citations"] == ["abc123"]
+    assert "[seg:abc123]" in out["answer"]
+
+
+def test_citationless_answer_after_fix_is_partial_not_no_info():
+    """Regression: when citations stay missing even after the correction
+    round, the (context-based) answer must still be presented with the
+    retrieved hits as sources -- never as 'no sufficient information'."""
+    llm = _ScriptedLLM([
+        "Es wird das Alpha Projekt fuer Q2 geplant.",
+        "Es wird das Alpha Projekt fuer Q2 geplant.",  # still no citation
+    ])
+    out = rag_mod.rag_answer("Was wird geplant?", _hits(), llm)
+    assert llm.calls == 2
+    assert out["grounded"] is False
+    assert out["evidence"] == "partial"
+    assert out["answer"] == "Es wird das Alpha Projekt fuer Q2 geplant."
+    assert [s["segment_id"] for s in out["sources"]] == ["abc123", "def456"]
+
+
+def test_explicit_refusal_stays_no_evidence():
+    llm = _ScriptedLLM(["Nicht im Transkript beantwortet."])
+    out = rag_mod.rag_answer("Was wurde ueber Beta gesagt?", _hits(), llm)
+    assert llm.calls == 1
+    assert out["grounded"] is False
+    assert out["evidence"] == "none"
     assert "Keine ausreichende Information" in out["answer"]
 
 

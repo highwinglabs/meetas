@@ -152,7 +152,9 @@ export default function SearchPanel({
           <div className={"note " + (answer.grounded ? "ok" : "warn")}>
             {answer.grounded
               ? t("search.grounded")
-              : t("chat.no_info")}
+              : answer.evidence === "partial"
+                ? t("search.partial")
+                : t("chat.no_info")}
           </div>
           <p className="rag-answer">{answer.answer}</p>
           {answer.sources.length > 0 && (

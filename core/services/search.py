@@ -165,7 +165,8 @@ class SearchMixin:
         if not hits:
             return {"answer": "Keine passende Stelle in den Projektinhalten gefunden."
                     if project_id else "Keine passende Stelle im Transkript gefunden.",
-                    "sources": [], "citations": [], "grounded": False, "hits": 0}
+                    "sources": [], "citations": [], "grounded": False,
+                    "evidence": "none", "hits": 0}
         engine = (self._llm_providers.engine_for_model(model_name)
                   if model_name else self._llm_engine())
         out = rag_answer(query, hits, engine, history=history)
