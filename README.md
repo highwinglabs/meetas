@@ -90,7 +90,7 @@ at any time, and the full pipeline even runs without any AI server
 (`MA_LLM_MOCK=true`).
 
 > Developers working from source (Node/npm, test suite, `npm run dev`) should use
-> the [Installation](#installation--configuration-for-developers) section instead.
+> the [Installation](#️-installation--configuration-for-developers) section instead.
 
 ---
 
