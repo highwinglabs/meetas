@@ -345,11 +345,11 @@ export default function MeetingDetail({
     if (boundary === "start") {
       const start = Math.min(next, Math.max(0, waveformDuration - 1));
       const end = Math.max(start + 1, audioRange.start + audioRange.duration);
-      setAudioRange({ start, duration: Math.min(30, end - start) });
+      setAudioRange({ start, duration: end - start });
       return;
     }
     const end = Math.max(audioRange.start + 1, next);
-    setAudioRange({ ...audioRange, duration: Math.min(30, end - audioRange.start) });
+    setAudioRange({ ...audioRange, duration: end - audioRange.start });
   };
 
   const movePreviewAwayFromNoiseProfile = (profileRange: { start_s: number; end_s: number }) => {
@@ -395,8 +395,17 @@ export default function MeetingDetail({
     const timer = setTimeout(async () => {
       setPreviewBusy(true);
       try {
+        // The preview endpoint is limited to 30 s; a longer selection just
+        // previews its first 30 s.
+        let start = audioRange.start;
+        let previewDuration = Math.min(30, Math.min(audioRange.start + audioRange.duration, waveformDuration) - start);
+        if (previewDuration < 1) {
+          start = Math.max(0, waveformDuration - 1);
+          previewDuration = Math.min(1, waveformDuration - start);
+        }
+        if (previewDuration < 1) return;
         const previewMode = audioProfile.noise_reduction_enabled && (noiseProfileMode === "automatic" || noiseProfileRange) ? noiseProfileMode : "disabled";
-        const result = await api.audioPreview(id, audioRange.start, audioRange.duration, audioProfile, previewMode === "manual" ? noiseProfileRange : null, previewMode, controller.signal);
+        const result = await api.audioPreview(id, start, previewDuration, audioProfile, previewMode === "manual" ? noiseProfileRange : null, previewMode, controller.signal);
         if (!cancelled) setPreviewUrl(api.audioPreviewUrl(id, result.token));
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
@@ -867,7 +876,9 @@ export default function MeetingDetail({
               audioRange={audioRange}
               onSelectionBoundaryChange={setAudioRangeBoundary}
               onUseSelectionAsNoiseProfile={() => {
-                const range = { start_s: audioRange.start, end_s: Math.min(waveformDuration, audioRange.start + audioRange.duration) };
+                // A noise profile is a short quiet passage; cap it at 30 s
+                // even if the user marked a longer range.
+                const range = { start_s: audioRange.start, end_s: Math.min(waveformDuration, audioRange.start + Math.min(30, audioRange.duration)) };
                 setNoiseProfileRange(range);
                 movePreviewAwayFromNoiseProfile(range);
               }}

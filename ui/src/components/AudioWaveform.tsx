@@ -1,10 +1,41 @@
-import { useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { fmtHMS } from "../format";
 import { useI18n } from "../i18n";
 
 export type AudioSelectionRange = { start: number; duration: number };
 export type NoiseProfileRange = { start_s: number; end_s: number };
+
+// Each bar occupies 1px plus a 1px flex gap, so this is the px cost per bar.
+const BAR_PITCH_PX = 2;
+
+// The API always returns up to 1000 points for the visible window, but only
+// as many bars as actually fit the container are rendered. Bucket-max keeps
+// the loudest sample per bar and guarantees that bar i covers exactly
+// [i/count, (i+1)/count] of the visible window — so the drawn waveform and
+// the mouse-to-time mapping always refer to the same audio content.
+function downsamplePeaks(peaks: number[], count: number): number[] {
+  const bars = new Array<number>(count).fill(0);
+  for (let i = 0; i < peaks.length; i += 1) {
+    const bucket = Math.min(count - 1, Math.floor((i * count) / peaks.length));
+    if (peaks[i] > bars[bucket]) bars[bucket] = peaks[i];
+  }
+  return bars;
+}
+
+// Bars are drawn inside the padding, so the pointer mapping must use the
+// content box — not the border-box rect — or edge selections drift.
+function contentMetrics(el: HTMLElement): { contentLeft: number; contentWidth: number } {
+  const rect = el.getBoundingClientRect();
+  const style = getComputedStyle(el);
+  const contentLeft = rect.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+  const contentWidth = rect.width
+    - parseFloat(style.borderLeftWidth)
+    - parseFloat(style.borderRightWidth)
+    - parseFloat(style.paddingLeft)
+    - parseFloat(style.paddingRight);
+  return { contentLeft, contentWidth };
+}
 
 export default function AudioWaveform({
   peaks,
@@ -37,10 +68,34 @@ export default function AudioWaveform({
 }) {
   const { t } = useI18n();
   const selectionStart = useRef<number | null>(null);
+  const waveRef = useRef<HTMLDivElement | null>(null);
+  const [contentWidth, setContentWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const el = waveRef.current;
+    if (!el) return;
+    const measure = () => {
+      const { contentWidth: width } = contentMetrics(el);
+      // Ignore sub-pixel jitter so the ResizeObserver cannot loop.
+      setContentWidth((prev) => (Math.abs(prev - Math.round(width)) <= 1 ? prev : Math.round(width)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const barCount = contentWidth > 0 ? Math.max(1, Math.floor(contentWidth / BAR_PITCH_PX)) : 0;
+  const bars = useMemo(
+    () => (barCount > 0 && peaks.length > 0 ? downsamplePeaks(peaks, barCount) : []),
+    [peaks, barCount],
+  );
 
   const timeAt = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return viewStart + Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * viewDuration;
+    const { contentLeft, contentWidth: width } = contentMetrics(event.currentTarget);
+    if (width <= 0) return viewStart;
+    const fraction = Math.max(0, Math.min(1, (event.clientX - contentLeft) / width));
+    return viewStart + fraction * viewDuration;
   };
 
   const startSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -56,7 +111,7 @@ export default function AudioWaveform({
     const second = timeAt(event);
     const start = Math.min(first, second);
     const distance = Math.abs(second - first);
-    onSelectionChange({ start, duration: Math.min(30, Math.max(1, distance)) });
+    onSelectionChange({ start, duration: Math.max(1, distance) });
   };
 
   const finishSelection = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -71,7 +126,7 @@ export default function AudioWaveform({
       return;
     }
     const start = Math.min(first, second);
-    onSelectionChange({ start, duration: Math.min(30, Math.max(1, distance)) });
+    onSelectionChange({ start, duration: Math.max(1, distance) });
   };
 
   const selectionLeft = Math.max(0, Math.min(100, ((selection.start - viewStart) / viewDuration) * 100));
@@ -85,6 +140,7 @@ export default function AudioWaveform({
         <span className="dim">{variant === "enhanced" ? t("audio.enhanced") : t("audio.original")}</span>
       </div>
       <div
+        ref={waveRef}
         className="audio-waveform"
         role="slider"
         aria-label={variant === "enhanced" ? t("audio.aria_waveform_enhanced") : t("audio.aria_waveform_original")}
@@ -97,8 +153,8 @@ export default function AudioWaveform({
         onPointerCancel={finishSelection}
       >
         {selectionWidth > 0 && <span className="audio-waveform-selection" style={{ left: `${selectionLeft}%`, width: `${selectionWidth}%` }} />}
-        {peaks.map((peak, index) => {
-          const start = viewStart + index / peaks.length * viewDuration;
+        {bars.map((peak, index) => {
+          const start = viewStart + index / bars.length * viewDuration;
           const selected = start >= selection.start && start <= selection.start + selection.duration;
           const noiseSelected = noiseProfileRange && start >= noiseProfileRange.start_s && start <= noiseProfileRange.end_s;
           const visualPeak = Math.min(100, Math.max(2, peak * 180));
