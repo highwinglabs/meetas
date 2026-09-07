@@ -1,7 +1,43 @@
-import type { RagAnswer } from "../types";
+import type { RagAnswer, RagSource } from "../types";
 import { useI18n } from "../i18n";
 
 export type MeetingChatMessage = { question: string; answer: RagAnswer };
+
+/** Renders the answer text and turns `[n]` markers into clickable references
+ *  that scroll to the matching numbered source below. */
+function AnswerWithRefs({ text, turnIndex }: { text: string; turnIndex: number }) {
+  const parts = text.split(/(\[\d+\])/g);
+  return (<>{parts.map((part, i) => {
+    const m = part.match(/^\[(\d+)\]$/);
+    if (!m) return <span key={i}>{part}</span>;
+    const target = `chat-src-${turnIndex}-${m[1]}`;
+    return (
+      <sup key={i} className="chat-cite">
+        <button type="button"
+          onClick={() => document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "center" })}>
+          [{m[1]}]
+        </button>
+      </sup>
+    );
+  })}</>);
+}
+
+function SourceList({ sources, turnIndex, onJumpToSegment }:
+  { sources: RagSource[]; turnIndex: number; onJumpToSegment: (segmentId: string) => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="rag-sources">
+      <span className="dim">{t("chat.sources")}</span>
+      {sources.map((s, n) => (
+        <button key={`${turnIndex}-${s.segment_id}`} id={`chat-src-${turnIndex}-${n + 1}`} className="hit"
+          onClick={() => onJumpToSegment(s.segment_id)}>
+          <div className="hit-head"><span><strong>{n + 1}.</strong> {s.speaker_id ?? t("common.speaker")}</span><span className="hit-time">{s.timestamp}</span></div>
+          <div className="hit-snippet">{s.snippet}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function ChatPanel({
   question,
@@ -49,16 +85,8 @@ export default function ChatPanel({
                     ? t("chat.partial")
                     : t("chat.no_info")}
               </div>
-              <p className="rag-answer">{message.answer.answer}</p>
-              {message.answer.sources.length > 0 && <div className="rag-sources">
-                <span className="dim">{t("chat.sources")}</span>
-                {message.answer.sources.map((s) => (
-                  <button key={`${index}-${s.segment_id}`} className="hit" onClick={() => onJumpToSegment(s.segment_id)}>
-                    <div className="hit-head"><span>{s.speaker_id ?? t("common.speaker")}</span><span className="hit-time">{s.timestamp}</span></div>
-                    <div className="hit-snippet">{s.snippet}</div>
-                  </button>
-                ))}
-              </div>}
+              <p className="rag-answer"><AnswerWithRefs text={message.answer.answer} turnIndex={index} /></p>
+              {message.answer.sources.length > 0 && <SourceList sources={message.answer.sources} turnIndex={index} onJumpToSegment={onJumpToSegment} />}
             </div>
           </details>
         ))}

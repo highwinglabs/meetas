@@ -63,7 +63,8 @@ def test_default_mock_grounded_chat_via_rag_answer():
     assert len(out["sources"]) == 2
     assert out["sources"][0]["segment_id"] == "abc123"
     assert "Alpha Projekt" in out["answer"]
-    assert "[seg:abc123]" in out["answer"]
+    assert "[1]" in out["answer"]  # compact reference to source #1
+    assert "seg:" not in out["answer"]
     assert out["evidence"] == "grounded"
 
 
@@ -105,7 +106,8 @@ def test_citationless_answer_gets_one_fix_round_and_becomes_grounded():
     assert out["grounded"] is True
     assert out["evidence"] == "grounded"
     assert out["citations"] == ["abc123"]
-    assert "[seg:abc123]" in out["answer"]
+    assert "[1]" in out["answer"]
+    assert "seg:" not in out["answer"]
 
 
 def test_citationless_answer_after_fix_is_partial_not_no_info():

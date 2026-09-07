@@ -86,7 +86,9 @@ def test_valid_citation_is_grounded_and_enriched(make_service):
     out = svc.ask("Alpha Projekt Q2", meeting_id=mid)
 
     assert out["grounded"] is True
-    assert "[seg:%s]" % seg_ids[0] in out["answer"]
+    # internal [seg:<id>] markers are replaced by compact [n] references
+    assert "[1]" in out["answer"]
+    assert "seg:" not in out["answer"]
     assert out["citations"] == [seg_ids[0]]
 
     src = out["sources"][0]

@@ -231,8 +231,11 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
             # retrieved context, so present it with the retrieved hits as
             # sources and a warning -- never as "no information found".
             best = answer if answer.strip() else answer2
+            # The markers cannot be mapped to the sources list here, so the
+            # raw internal ids are simply not shown.
+            best = re.sub(r"\[seg:[A-Za-z0-9]+\]", "", best).strip()
             return {
-                "answer": best,
+                "answer": best or "(leere Antwort)",
                 "sources": [_source_from_hit(h) for h in hits],
                 "citations": [],          # none valid
                 "invalid_citations": [c for c in citations if c not in valid_ids],
@@ -248,8 +251,16 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
     rest = [h for h in hits if h["segment_id"] not in set(valid_citations)]
     sources = [_source_from_hit(h) for h in cited_hits + rest]
 
+    # 4) User-friendly display: internal [seg:<id>] markers become compact
+    #    [n] references pointing at the sources list below (cited hits come
+    #    first, so [n] is exactly position n in that list).
+    id_to_ref = {cid: "[%d]" % i for i, cid in enumerate(valid_citations, start=1)}
+    display_answer = re.sub(
+        r"\[seg:([A-Za-z0-9]+)\]", lambda m: id_to_ref.get(m.group(1), ""),
+        answer)
+
     return {
-        "answer": answer,
+        "answer": display_answer.strip() or answer,
         "sources": sources,
         "citations": valid_citations,
         "invalid_citations": [c for c in citations if c not in valid_ids],
