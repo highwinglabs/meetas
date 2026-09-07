@@ -8,12 +8,12 @@ Grounding contract (Phase 8 rework, relaxed for small models):
 - An answer is ``grounded`` **only** when it cites at least one segment id that
   actually exists in the retrieved hits. Small local models often answer well
   but forget the ``[seg:<id>]`` markers, so a citation-less answer first gets
-  one correction round; if citations are still missing the answer is returned
-  as ``evidence="partial"`` (answer + retrieved hits as sources + warning) --
-  it is never replaced by a misleading "no sufficient evidence" result.
-- Returned ``sources`` are retrieved hits (cited segments first; remaining
-  context is included for transparency). Each carries meeting, date, speaker,
-  timestamp and a jump target so the UI can navigate straight to the line.
+  one correction round (with a concrete example); if citations are still
+  missing the answer is returned as ``evidence="partial"`` -- never replaced
+  by a misleading "no sufficient evidence" result.
+- Returned ``sources``: grounded answers list exactly the cited segments (the
+  [n] markers in the text refer to them); partial answers list the top
+  retrieved hits as context passages.
 """
 from __future__ import annotations
 
@@ -139,13 +139,21 @@ def _format_history(history: list[dict] | None, max_chars: int = 6000) -> str:
 
 def _build_cite_fix_prompt(context: str, conversation: str, query: str,
                            draft: str, allowed_ids: list[str]) -> str:
-    """One-shot correction round for an answer that lacked usable citations."""
+    """One-shot correction round for an answer that lacked usable citations.
+
+    Small local models follow a *concrete example* far more reliably than an
+    abstract rule, so the prompt shows the exact expected shape with a real
+    allowed id.
+    """
+    example_id = allowed_ids[0] if allowed_ids else "S1"
     return (
         f"{conversation}Kontext:\n{context}\n\nFrage: {query}\n\n"
         "Deine Antwort war inhaltlich gut, enthielt aber keine gültigen "
-        "Quellenzitate. Formuliere sie NUR auf Basis des Kontexts neu und "
-        "zitiere jede belastbare Aussage mit dem exakten Marker [seg:<id>]. "
-        f"Erlaubte Ids: {', '.join(allowed_ids)}. "
+        "Quellenzitate. Formuliere sie NUR auf Basis des Kontexts neu. "
+        "Jede Aussage (jeder Stichpunkt) MUSS mit einem Quellen-Zitat in "
+        "diesem exakten Format enden: [seg:<id>], wobei <id> eines der "
+        f"erlaubten Ids ist: {', '.join(allowed_ids)}.\n"
+        f"Beispiel eines korrekten Satzes: \"Das Projekt startet im Q2. [seg:{example_id}]\"\n"
         "Gib NUR die finale Antwort aus.\n\n"
         "Vorläufige Antwort:\n" + (draft or "")
     )
@@ -228,15 +236,17 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
             result = result2
         else:
             # Still unverifiable. The answer is based exclusively on the
-            # retrieved context, so present it with the retrieved hits as
-            # sources and a warning -- never as "no information found".
+            # retrieved context, so present it with the top retrieved hits as
+            # context passages and a warning -- never as "no information
+            # found". Only a handful are listed (they are not per-claim
+            # sources, so a long dump would be misleading).
             best = answer if answer.strip() else answer2
             # The markers cannot be mapped to the sources list here, so the
             # raw internal ids are simply not shown.
             best = re.sub(r"\[seg:[A-Za-z0-9]+\]", "", best).strip()
             return {
                 "answer": best or "(leere Antwort)",
-                "sources": [_source_from_hit(h) for h in hits],
+                "sources": [_source_from_hit(h) for h in hits[:8]],
                 "citations": [],          # none valid
                 "invalid_citations": [c for c in citations if c not in valid_ids],
                 "grounded": False,
@@ -245,11 +255,11 @@ def rag_answer(query: str, hits: list[dict], llm: LLMEngine,
                 "model": model2,
             }
 
-    # 3) Grounded: sources are exactly the validly-cited segments, cited order
-    # first, then any remaining retrieved context (all still real segments).
+    # 3) Grounded: sources are exactly the validly-cited segments (in citation
+    # order) so the [n] markers in the text refer 1:1 to the list below --
+    # unreferenced context hits are intentionally not listed.
     cited_hits = [hits_by_id[c] for c in valid_citations]
-    rest = [h for h in hits if h["segment_id"] not in set(valid_citations)]
-    sources = [_source_from_hit(h) for h in cited_hits + rest]
+    sources = [_source_from_hit(h) for h in cited_hits]
 
     # 4) User-friendly display: internal [seg:<id>] markers become compact
     #    [n] references pointing at the sources list below (cited hits come

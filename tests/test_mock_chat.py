@@ -60,7 +60,8 @@ def test_default_mock_grounded_chat_via_rag_answer():
     out = rag_mod.rag_answer("Was wird geplant?", hits, MockLLM())
     assert out["grounded"] is True
     assert out["citations"] == ["abc123"]
-    assert len(out["sources"]) == 2
+    # grounded sources are exactly the cited segments (1:1 with [n] markers)
+    assert len(out["sources"]) == 1
     assert out["sources"][0]["segment_id"] == "abc123"
     assert "Alpha Projekt" in out["answer"]
     assert "[1]" in out["answer"]  # compact reference to source #1
