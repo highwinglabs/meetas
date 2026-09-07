@@ -60,7 +60,7 @@ AI services.
 
 ---
 
-## 🚀 Quick Start (Linux, ~3 minutes)
+## 🚀 Quick Start — Linux (Debian/Ubuntu, Fedora, Arch), ~3 minutes
 
 ```bash
 git clone https://github.com/highwinglabs/meetas
@@ -68,7 +68,12 @@ cd meetas
 ./install.sh
 ```
 
-That's it. The web UI is **prebuilt** in the repository, so a normal install needs
+That's it. The installer works on **Debian/Ubuntu, Fedora, and Arch** — it
+picks the right package manager for your distribution automatically.
+
+> **Other Linux distributions** (e.g. openSUSE, NixOS): everything works the
+> same way, but you need to install `ffmpeg` and PortAudio with your package
+> manager first — the installer does not know those package managers yet. The web UI is **prebuilt** in the repository, so a normal install needs
 **no Node/npm**. `install.sh` shows exactly what it will do and only adds what is
 missing: the system packages `ffmpeg` + PortAudio, **Python 3.12 via `uv`**, and the
 locked Python dependencies. It then initializes storage and starts the service.
