@@ -52,6 +52,10 @@ class MockLLM(LLMEngine):
     def is_available(self) -> bool:
         return True
 
+    def get_context_window(self) -> Optional[int]:
+        # Generous deterministic window so test transcripts are never trimmed.
+        return 100000
+
     def complete(self, prompt: str, system: Optional[str] = None, **opts: Any) -> LLMResult:
         self.calls += 1
         self.last_prompt = prompt
@@ -83,48 +87,41 @@ class MockLLM(LLMEngine):
 
     @staticmethod
     def _valid_json(prompt: str) -> str:
-        """Build a valid, schema-complete analysis. Sources are parsed from the
-        ``[S<n> | Sprecher: X | ts]`` markers in the prompt so the output always
-        passes validation against the real segment ids."""
+        """Build a valid, schema-complete analysis. Sources are the positional
+        ``S<n>`` ids parsed from the prompt markers -- the backend resolves
+        speaker/timestamp/segment from the transcript rows, so the mock never
+        needs to (and cannot) invent them."""
         ids = re.findall(r"\[(S\d+)\s*\|", prompt) or ["S1"]
         first = ids[0]
         second = ids[1] if len(ids) > 1 else ids[0]
-        m = re.search(r"\[S1\s*\|\s*Sprecher:\s*([^|]+?)\s*\|\s*([^\]]+)\]", prompt)
-        sp1 = m.group(1).strip() if m else "Sprecher 1"
-        ts1 = m.group(2).strip() if m else "00:00:00-00:00:01"
-        ts2 = "00:00:01-00:00:02"
-        sp2 = "Sprecher 2"
-
-        def q(sid: str, sp: str, ts: str) -> dict:
-            return {"segment_id": sid, "sprecher": sp, "timestamp": ts}
 
         data = {
             "kurzfassung": [
-                {"text": "(mock) Kurzfassung der Sitzung.", "quellen": [q(first, sp1, ts1)]},
+                {"text": "(mock) Kurzfassung der Sitzung.", "quellen": [first]},
             ],
             "themen": [
-                {"text": "(mock) Thema 1.", "quellen": [q(first, sp1, ts1)]},
+                {"text": "(mock) Thema 1.", "quellen": [first]},
             ],
             "entscheidungen": [
-                {"text": "(mock) Entscheidung 1.", "quellen": [q(first, sp1, ts1)]},
+                {"text": "(mock) Entscheidung 1.", "quellen": [first]},
             ],
             "aufgaben": [
                 {"text": "(mock) Aufgabe 1.",
                  "verantwortlich": "nicht angegeben", "deadline": "nicht angegeben",
-                 "quellen": [q(second, sp2, ts2)]},
+                 "quellen": [second]},
             ],
             "offene_fragen": [
-                {"text": "(mock) Offene Frage 1.", "quellen": [q(first, sp1, ts1)]},
+                {"text": "(mock) Offene Frage 1.", "quellen": [first]},
             ],
             "naechste_schritte": [
-                {"text": "(mock) Nächster Schritt.", "quellen": [q(second, sp2, ts2)]},
+                {"text": "(mock) Nächster Schritt.", "quellen": [second]},
             ],
             "risiken": [],
             "wichtige_fakten": [
-                {"text": "(mock) Fakt 1.", "quellen": [q(first, sp1, ts1)]},
+                {"text": "(mock) Fakt 1.", "quellen": [first]},
             ],
             "follow_ups": [
-                {"text": "(mock) Follow-up 1.", "quellen": [q(first, sp1, ts1)]},
+                {"text": "(mock) Follow-up 1.", "quellen": [first]},
             ],
         }
         return json.dumps(data, ensure_ascii=False)

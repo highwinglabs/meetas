@@ -945,7 +945,7 @@ export default function MeetingDetail({
         </button>
         {analysisOpen && <div className="ai-result-body">
           {analysis ? (
-            <AnalysisView content={analysis.content} markdown={analysis.markdown} model={analysis.model} outputLanguage={analysis.output_lang ?? null} />
+            <AnalysisView content={analysis.content} markdown={analysis.markdown} model={analysis.model} outputLanguage={analysis.output_lang ?? null} segments={detail.segments} onJumpToSegment={jumpToSegment} />
           ) : (
             <Note>{!hasSegs ? t("detail.transcript_required") : t("detail.no_summary")}</Note>
           )}

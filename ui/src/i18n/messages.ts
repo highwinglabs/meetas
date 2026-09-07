@@ -256,6 +256,8 @@ const de = {
   "transcript.mark": "Markieren",
   // Analysis
   "analysis.format_failed": "Die Auswertung konnte nicht vollständig formatiert werden. Der Inhalt wird vereinfacht angezeigt.",
+  "analysis.sources": "Quellen",
+  "analysis.jump": "Zur Stelle springen",
   "analysis.model": "Modell: {model}",
   "analysis.language": "Sprache: {lang}",
   // Tasks panel (extra)
@@ -925,6 +927,8 @@ const en: Record<MessageKey, string> = {
   "transcript.mark": "Mark",
   // Analysis
   "analysis.format_failed": "The analysis could not be fully formatted. The content is shown in a simplified form.",
+  "analysis.sources": "Sources",
+  "analysis.jump": "Jump to this point",
   "analysis.model": "Model: {model}",
   "analysis.language": "Language: {lang}",
   // Tasks panel (extra)

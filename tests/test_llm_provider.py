@@ -251,3 +251,69 @@ def test_manager_marks_ollama_engines(config):
     # A plain llama.cpp model stays on the configured endpoint without the flag.
     assert manager.engine_for_model("llama-3-8b").ollama is False
     manager.clear_cache()
+
+
+# --- Context window detection (GET /v1/models, best-effort) --------------
+
+
+def test_context_window_llamacpp_meta_n_ctx(config):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={
+                "data": [{"id": "qwen3.8-27b", "meta": {"n_ctx": 131072},
+                          "details": {"context_length": 262144}}],
+            })
+        return httpx.Response(404)
+    eng, _ = _engine(config, handler)
+    assert eng.get_context_window() == 131072
+
+
+def test_context_window_ollama_details(config):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={
+                "data": [{"id": "qwen3.5:4b",
+                          "details": {"context_length": 32768}}],
+            })
+        return httpx.Response(404)
+    eng, _ = _engine(config, handler)
+    assert eng.get_context_window() == 32768
+
+
+def test_context_window_missing_field_is_none(config):
+    eng, _ = _engine(config, lambda r: httpx.Response(200, json={
+        "data": [{"id": "m", "object": "model"}]}))
+    assert eng.get_context_window() is None
+
+
+def test_context_window_unreachable_is_none(config):
+    eng, _ = _engine(config, lambda r: httpx.Response(500))
+    assert eng.get_context_window() is None
+
+
+def test_context_window_result_is_cached(config):
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/models"):
+            calls.append(1)
+            return httpx.Response(200, json={
+                "data": [{"id": "m", "meta": {"n_ctx": 40960}}]})
+        return httpx.Response(404)
+    eng, _ = _engine(config, handler)
+    assert eng.get_context_window() == 40960
+    assert eng.get_context_window() == 40960
+    assert len(calls) == 1  # detected exactly once
+
+
+def test_budget_and_mock_use_window(config):
+    """End-to-end: a detected 131k window lifts the transcript budget above
+    the 24k default, so a 100k-char transcript is no longer trimmed."""
+    from core.analysis import transcript_char_budget, build_prompt
+    assert transcript_char_budget(config, None) == 24000
+    big = transcript_char_budget(config, 131072)
+    assert big > 24000
+    segs = [(float(i), float(i) + 0.5, "A", "x" * 900) for i in range(120)]
+    _sys, user_default = build_prompt("t", segs)
+    _sys, user_big = build_prompt("t", segs, max_chars=big)
+    assert len(user_default) < len(user_big)  # default trims, big window doesn't

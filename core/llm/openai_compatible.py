@@ -58,6 +58,72 @@ class OpenAICompatibleLLM(LLMEngine):
         self.ollama = False
         self._http = http_client
         self._sleep = sleep_fn
+        # Context-window detection cache: None = not detected yet.
+        self._ctx_window: Optional[int] = None
+        self._ctx_lock = threading.Lock()
+
+    # -- context window detection ------------------------------------------
+    # Where different OpenAI-compatible servers report the model context
+    # (tokens). Checked on the model entry from GET /models, on its top level
+    # and in the nested server-specific metadata objects.
+    _CTX_KEYS = ("context_length", "max_context_length", "context_window",
+                 "max_model_len", "max_position_embeddings", "n_ctx")
+
+    def get_context_window(self) -> Optional[int]:
+        """Best-effort detection of the model's context window (tokens).
+
+        Queries ``GET /models`` once (the result is cached for the engine's
+        lifetime) and reads the window from the locations the common local
+        servers use it: ``meta.n_ctx`` (llama.cpp), ``details.context_length``
+        (Ollama) or a conventional top-level field. Never raises -- any
+        failure (server down, unexpected shape, no field) yields ``None`` and
+        the caller falls back to its safe default.
+        """
+        if self._ctx_window is not None:
+            return self._ctx_window
+        with self._ctx_lock:
+            if self._ctx_window is not None:
+                return self._ctx_window
+            window = self._detect_context_window()
+            # Cache the outcome (including None): one detection per engine.
+            self._ctx_window = window
+            if window:
+                log.info("llm_context_window model=%s tokens=%d",
+                         self.model, window)
+            return window
+
+    def _detect_context_window(self) -> Optional[int]:
+        try:
+            if self._http is None:
+                require_endpoint_allowed(self.base_url, self.config)
+            resp = self._client().get(self.base_url + "/models", timeout=5.0)
+            if resp.status_code >= 400:
+                return None
+            data = resp.json()
+        except Exception:  # noqa: BLE001 - best-effort by contract
+            return None
+        if not isinstance(data, dict):
+            return None
+        entries = data.get("data")
+        if not isinstance(entries, list) or not entries:
+            return None
+        entry = next((e for e in entries
+                      if isinstance(e, dict) and e.get("id") == self.model),
+                     None)
+        if entry is None:
+            entry = entries[0] if len(entries) == 1 and isinstance(entries[0], dict) else None
+        if not isinstance(entry, dict):
+            return None
+        containers = [entry]
+        for nested in ("meta", "details"):
+            if isinstance(entry.get(nested), dict):
+                containers.append(entry[nested])
+        for container in containers:
+            for key in self._CTX_KEYS:
+                value = container.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                    return value
+        return None
 
     # -- client lifecycle ---------------------------------------------------
     def _client(self) -> httpx.Client:

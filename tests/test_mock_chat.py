@@ -144,7 +144,8 @@ def test_default_mock_analysis_prompt_unchanged():
     res = MockLLM().complete(prompt)
     data = json.loads(res.text)
     assert len(data) == 9
-    assert data["kurzfassung"][0]["quellen"][0]["segment_id"] == "S1"
+    # the mock cites positional S-ids (the backend resolves them server-side)
+    assert data["kurzfassung"][0]["quellen"] == ["S1"]
     assert data["aufgaben"][0]["verantwortlich"] == "nicht angegeben"
 
 

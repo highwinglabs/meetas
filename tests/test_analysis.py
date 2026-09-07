@@ -46,14 +46,16 @@ def test_analyze_stores_summary(config, finalize_meeting):
     # content is the validated structured JSON with all nine areas.
     data = json.loads(out["content"])
     assert set(NINE) <= set(data.keys())
-    # every statement carries at least one source
+    # every statement carries at least one fully resolved source
     for key in NINE:
         for entry in data[key]:
             assert entry["text"].strip()
             assert entry["quellen"], f"{key} entry without a source"
             for q in entry["quellen"]:
-                assert q["segment_id"] in ("S1", "S2")
+                assert q["sid"] in ("S1", "S2")
+                assert q["segment_id"]  # real segment id resolved from the row
                 assert q["sprecher"] and q["timestamp"]
+                assert "snippet" in q
     # markdown rendering is available (UI/export)
     assert "Kurzfassung" in out["markdown"]
 
@@ -104,10 +106,11 @@ def test_analyze_prompt_is_structured(config):
     assert "Wir starten am Montag" in user
     assert "[S1 | Sprecher: Sprecher 1" in user
     assert "[S2 |" in user
-    # all nine mandatory areas are demanded; sources are NOT required anymore
+    # all nine mandatory areas are demanded; sources are cited as S-id lists
     for key in NINE:
         assert key in user
-    assert "segment_id" not in user and "quellen" not in user
+    assert '"quellen": ["S1"]' in user  # example shows the S-id citation form
+    assert "S-Nummern" in user  # rule explains the positional ids
 
 
 def test_analyze_system_prompt_transcript_language(config):
@@ -206,12 +209,25 @@ def test_render_markdown_default_is_german():
     assert "## Aufgaben / Action Items" in md
     assert "- nicht angegeben" in md
     assert "Verantwortlich: nicht angegeben" in md
-    # sources are optional and intentionally not rendered
-    assert "Quelle:" not in md
+    # sources are rendered as global [n] references + a Quellen list
+    assert "- T [1]" in md
+    assert "- A [2]" in md
+    assert "## Quellen" in md
+    assert "1. A \u00b7 0:00" in md
     # explicit "de", a German region tag and an unknown code stay byte-identical.
     assert schema.render_markdown(_sample_analysis(), lang="de") == md
     assert schema.render_markdown(_sample_analysis(), lang="de-DE") == md
     assert schema.render_markdown(_sample_analysis(), lang="xx") == md
+
+
+def test_render_markdown_without_sources_has_no_quellen_section():
+    data = _sample_analysis()
+    for key in data:
+        for e in data[key]:
+            e["quellen"] = []
+    md = schema.render_markdown(data)
+    assert "## Quellen" not in md
+    assert "[1]" not in md
 
 
 def test_render_markdown_localised_english():
@@ -221,7 +237,8 @@ def test_render_markdown_localised_english():
     assert "- not specified" in md
     assert "Owner: not specified" in md
     assert "Deadline: not specified" in md
-    assert "Source:" not in md  # sources are not rendered
+    assert "Source:" not in md
+    assert "## Sources" in md  # localised Quellen heading
     # the German headings / labels / sentinel must be gone
     assert "Kurzfassung" not in md
     assert "Verantwortlich" not in md
@@ -307,11 +324,19 @@ def test_analyze_always_invalid_fails_and_stores_nothing(config, finalize_meetin
     assert analyze_job and analyze_job[0]["status"] == "failed"
 
 
-def test_validate_analysis_flags_missing_section_and_drops_bad_sources():
+def _rows():
+    # rows with real segment ids, as the processor builds them
+    return schema.to_seg_rows([
+        (0.0, 1.0, "A", "Erster Satz aus dem Transkript.", "real-uuid-1"),
+        (65.0, 67.0, "B", "Zweiter Satz aus dem Transkript.", "real-uuid-2"),
+    ])
+
+
+def test_validate_analysis_resolves_sources_from_rows():
     # a missing area is still reported
     normalised, errors = schema.validate_analysis(
         {k: [] for k in NINE[:-1]},  # drop "follow_ups" on purpose
-        valid_segment_ids={"S1", "S2"},
+        _rows(),
     )
     assert normalised is None
     assert any("follow_ups" in e for e in errors)
@@ -319,24 +344,34 @@ def test_validate_analysis_flags_missing_section_and_drops_bad_sources():
     # phantom source (S99) is dropped silently instead of failing the output
     bad = {k: [] for k in NINE}
     bad["themen"] = [
-        {"text": "X", "quellen": [
-            {"segment_id": "S99", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]},
+        {"text": "X", "quellen": ["S99"]},  # phantom S-id (string form)
         {"text": "Y"},  # no sources at all (small-model style output)
     ]
-    normalised2, errors2 = schema.validate_analysis(bad, {"S1", "S2"})
+    normalised2, errors2 = schema.validate_analysis(bad, _rows())
     assert errors2 == []
     assert normalised2 is not None
     assert normalised2["themen"][0]["quellen"] == []
     assert normalised2["themen"][1]["quellen"] == []
-    # valid sources are still kept
+    # the new string form is resolved fully from the row (never model-invented)
     good = {k: [] for k in NINE}
-    good["themen"] = [{"text": "Z", "quellen": [
-        {"segment_id": "S1", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]}]
-    normalised3, errors3 = schema.validate_analysis(good, {"S1", "S2"})
+    good["themen"] = [{"text": "Z", "quellen": ["S2", "S1", "S1"]}]  # dup dropped
+    normalised3, errors3 = schema.validate_analysis(good, _rows())
     assert errors3 == []
     assert normalised3 is not None
     assert normalised3["themen"][0]["quellen"] == [
-        {"segment_id": "S1", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]
+        {"sid": "S2", "segment_id": "real-uuid-2", "sprecher": "B",
+         "timestamp": "00:01:05", "snippet": "Zweiter Satz aus dem Transkript."},
+        {"sid": "S1", "segment_id": "real-uuid-1", "sprecher": "A",
+         "timestamp": "00:00:00", "snippet": "Erster Satz aus dem Transkript."},
+    ]
+    # the legacy dict form (older stored data / model output) still validates
+    legacy = {k: [] for k in NINE}
+    legacy["themen"] = [{"text": "L", "quellen": [
+        {"segment_id": "S1", "sprecher": "ignored", "timestamp": "ignored"}]}]
+    normalised4, errors4 = schema.validate_analysis(legacy, _rows())
+    assert errors4 == []
+    assert normalised4["themen"][0]["quellen"][0]["sid"] == "S1"
+    assert normalised4["themen"][0]["quellen"][0]["sprecher"] == "A"  # from the row
 
 
 def _valid_analysis_text():
@@ -382,10 +417,11 @@ def test_analyze_parses_wrapped_json(config, finalize_meeting, wrap):
     assert mock.calls == 1  # recognised on the first try, no correction needed
     data = json.loads(out["content"])
     assert set(NINE) <= set(data.keys())
-    # sources were validated against the real segments
+    # sources were resolved against the real segments
     for entry in data["aufgaben"]:
         for src in entry["quellen"]:
-            assert src["segment_id"] in ("S1", "S2")
+            assert src["sid"] in ("S1", "S2")
+            assert src["segment_id"]  # real segment id from the transcript row
 
 
 def test_analyze_wrapped_json_drops_phantom_sources(config, finalize_meeting):
@@ -434,6 +470,25 @@ def test_analyze_accepts_analysis_without_sources(config, finalize_meeting):
     # sources are not rendered into the markdown either
     assert "Quelle:" not in out["markdown"]
     assert svc.get_meeting(mid)["status"] == "done"
+
+
+def test_transcript_char_budget_follows_context_window():
+    """The transcript budget derives from the model's context window.
+
+    Unknown/too-small windows keep the safe default; a 131k window fits all of
+    the user's real meetings (largest transcript ~177k chars)."""
+    from core.analysis import transcript_char_budget
+    cfg = type("C", (), {"llm_max_tokens": 8192})()
+    # unknown / tiny / bogus windows -> the historical safe default
+    assert transcript_char_budget(cfg, None) == 24000
+    assert transcript_char_budget(cfg, 0) == 24000
+    assert transcript_char_budget(cfg, 16384) == 24000
+    assert transcript_char_budget(cfg, "bogus") == 24000
+    # 131072 - max(8192, 131072//8) - 4096 = 110592 tokens * 3 = 331776 chars
+    assert transcript_char_budget(cfg, 131072) == 331776
+    # a larger configured answer budget shrinks the transcript room
+    cfg2 = type("C", (), {"llm_max_tokens": 32000})()
+    assert transcript_char_budget(cfg2, 131072) < 331776
 
 
 def test_analyze_no_transcript_raises_without_status_flip(config, finalize_meeting):

@@ -114,7 +114,8 @@ def test_unescaped_quotes_inside_text_value():
     obj = schema.extract_json(raw)
     assert isinstance(obj, dict) and "kurzfassung" in obj
     assert obj["kurzfassung"][0]["text"] == 'Die Frage "Wie geht\'s?" wurde gestellt.'
-    norm, errors = schema.validate_analysis(obj, {"S1"})
+    norm, errors = schema.validate_analysis(
+        obj, schema.to_seg_rows([(0.0, 4.0, "Anna", "Transkripttext")]))
     assert errors == [] and norm is not None
     # A genuinely valid object with escaped quotes must pass through unchanged.
     valid = json.dumps(_valid(), ensure_ascii=False)
@@ -144,7 +145,8 @@ def test_phantom_sources_are_dropped_not_rejected():
     obj = _valid()
     obj["themen"][0]["quellen"][0]["segment_id"] = "S99"  # does not exist
     data = schema.extract_json(json.dumps(obj, ensure_ascii=False))
-    normalised, errors = schema.validate_analysis(data, valid_segment_ids={"S1"})
+    rows = schema.to_seg_rows([(0.0, 4.0, "Anna", "Transkripttext")])
+    normalised, errors = schema.validate_analysis(data, rows)
     assert errors == []
     assert normalised is not None
     assert normalised["themen"][0]["quellen"] == []

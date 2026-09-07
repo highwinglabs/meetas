@@ -1,12 +1,15 @@
 """Structured, validated meeting-analysis schema (Phase 3).
 
 The analysis is a **mandatory JSON structure** with nine fixed areas.
-Statements *may* carry sources (``segment_id``, ``sprecher``, ``timestamp``),
-but sources are **optional**: small local models do not reliably emit them,
-and no UI surface displays them, so their absence must never fail a valid
-summary. Responsible persons / deadlines that the transcript does not state
-are normalised to the exact sentinel ``"nicht angegeben"`` -- they are never
-invented.
+Statements *may* carry sources: the model cites them as a list of positional
+``S<n>`` ids (``"quellen": ["S3", "S7"]``). The validator resolves every
+cited id against the transcript rows and stores the fully sourced entry
+(sid, real segment id, speaker, timestamp, snippet) -- the model can never
+invent speaker or timestamp, and unknown ids are dropped silently. Sources
+remain **optional**: small local models do not always emit them, and their
+absence must never fail a valid summary. Responsible persons / deadlines
+that the transcript does not state are normalised to the exact sentinel
+``"nicht angegeben"`` -- they are never invented.
 
 :func:`validate_analysis` is strict: it returns the normalised structure on
 success, or a list of human-readable (German) error strings. The processor uses
@@ -175,8 +178,8 @@ _SECTION_TITLES_BY_LANG: Dict[str, Dict[str, str]] = {
 }
 _MISSING_TEXT_BY_LANG: Dict[str, str] = {"de": NOT_GIVEN, "en": "not specified"}
 _ANALYSIS_LABELS_BY_LANG: Dict[str, Dict[str, str]] = {
-    "de": {"verantwortlich": "Verantwortlich", "deadline": "Deadline", "quelle": "Quelle"},
-    "en": {"verantwortlich": "Owner", "deadline": "Deadline", "quelle": "Source"},
+    "de": {"verantwortlich": "Verantwortlich", "deadline": "Deadline", "quelle": "Quelle", "quellen": "Quellen"},
+    "en": {"verantwortlich": "Owner", "deadline": "Deadline", "quelle": "Source", "quellen": "Sources"},
 }
 
 
@@ -253,14 +256,19 @@ def fmt_time(seconds: float) -> str:
 
 
 def to_seg_rows(
-    segments: Sequence[Tuple[float, float, Optional[str], str]],
+    segments: Sequence[tuple],
 ) -> List[Dict[str, Any]]:
-    """Normalise ``(start_s, end_s, speaker, text)`` tuples into prompt rows with
-    positional, easily-citable ``S<n>`` segment ids (1-based, playback order)."""
+    """Normalise ``(start_s, end_s, speaker, text[, segment_id])`` tuples into
+    prompt rows with positional, easily-citable ``S<n>`` segment ids (1-based,
+    playback order). The optional fifth element is the segment's real id; it
+    is carried along for source resolution and never shown to the model."""
     rows: List[Dict[str, Any]] = []
-    for i, (start, end, speaker, text) in enumerate(segments, start=1):
+    for i, seg in enumerate(segments, start=1):
+        start, end, speaker, text = seg[0], seg[1], seg[2], seg[3]
+        segment_id = seg[4] if len(seg) > 4 else None
         rows.append({
             "sid": f"S{i}",
+            "segment_id": segment_id,
             "start_s": float(start or 0.0),
             "end_s": float(end or 0.0),
             "speaker": (speaker or "").strip() or "Unbekannt",
@@ -304,12 +312,16 @@ def build_user_prompt(title: str, rows: Sequence[Dict[str, Any]],
         "Regeln:",
         '- Jeder Eintrag braucht "text" (nicht leer).',
         "- Keine erfundenen Fakten, Namen, Zahlen oder Fristen.",
+        '- Jeder Eintrag zitiert seine Belege: "quellen" ist eine Liste der S-Nummern '
+        'aus dem Transkript, z.B. "quellen": ["S3", "S7"] (nur Nummern, die es im '
+        'Transkript wirklich gibt; leeres Array [], wenn keine passende Stelle '
+        'bestimmt werden kann).',
         "- Ausgabe: NUR das JSON-Objekt, sonst absolut nichts (kein Markdown, keine Code-Zaune).",
         "",
         "Beispiel (Struktur; Inhalte ersetzen):",
         "{",
-        '  "kurzfassung": [{"text": "..."}],',
-        '  "aufgaben": [{"text": "...", "verantwortlich": "Ben", "deadline": "Ende der Woche"}],',
+        '  "kurzfassung": [{"text": "...", "quellen": ["S1"]}],',
+        '  "aufgaben": [{"text": "...", "verantwortlich": "Ben", "deadline": "Ende der Woche", "quellen": ["S4"]}],',
         '  "risiken": []',
         "}",
         "",
@@ -333,6 +345,7 @@ def build_fix_prompt(errors: Sequence[str], raw: str,
         "Korrekturen:",
         f"- Alle 9 Pflicht-Bereiche vorhanden: {keys} (leeres Array [] ist erlaubt).",
         '- Jeder Eintrag braucht "text" (nicht leer).',
+        '- "quellen" ist eine Liste von S-Nummern (z.B. ["S1"]) oder ein leeres Array.',
         f'- Unbekannte Verantwortliche/Deadlines exakt: "{NOT_GIVEN}".',
         "- NUR das korrigierte, vollständige JSON-Objekt ausgeben (kein Markdown, keine Code-Zaune).",
         "",
@@ -512,13 +525,51 @@ def _is_nonempty_str(v: Any) -> bool:
     return isinstance(v, str) and v.strip() != ""
 
 
-def validate_analysis(data: Any, valid_segment_ids: set) -> Tuple[Optional[dict], List[str]]:
+def _source_sid(ref: Any) -> Optional[str]:
+    """Normalise one raw source reference to an ``S<n>`` id, or ``None``.
+
+    Accepts the new plain form (``"S5"``) and the legacy dict form
+    (``{"segment_id": "S5", ...}`` from older stored/produced data).
+    """
+    if isinstance(ref, str):
+        cand = ref.strip()
+    elif isinstance(ref, dict):
+        raw = ref.get("segment_id")
+        cand = raw.strip() if isinstance(raw, str) else ""
+    else:
+        cand = ""
+    return cand or None
+
+
+def _source_from_row(sid: str, row: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve a cited ``S<n>`` id into a fully sourced entry.
+
+    Speaker, timestamp and snippet come exclusively from the transcript row,
+    so the model can never invent them. ``segment_id`` is the segment's real
+    id (for transcript jumps); without one (e.g. legacy rows) the S-id is kept.
+    """
+    text = (row.get("text") or "").strip()
+    return {
+        "sid": sid,
+        "segment_id": row.get("segment_id") or sid,
+        "sprecher": (row.get("speaker") or "").strip() or "Unbekannt",
+        "timestamp": fmt_time(row.get("start_s", 0.0)),
+        "snippet": text[:200],
+    }
+
+
+def validate_analysis(data: Any, rows: Sequence[Dict[str, Any]]) -> Tuple[Optional[dict], List[str]]:
     """Validate + normalise the raw parsed JSON.
+
+    ``rows`` are the transcript rows from :func:`to_seg_rows` (the ones the
+    model saw): sources are resolved against them, so a cited id that does not
+    exist in the shown transcript is dropped silently (never an error).
 
     Returns ``(normalised, errors)``. On success ``errors`` is empty and
     ``normalised`` has all nine sections. On failure ``normalised`` is ``None``
     and ``errors`` lists the concrete problems (used for the one-shot fix).
     """
+    by_sid = {r["sid"]: r for r in rows}
     if not isinstance(data, dict):
         return None, ["Antwort ist kein JSON-Objekt (oder leer/ungültiges JSON)"]
 
@@ -547,27 +598,20 @@ def validate_analysis(data: Any, valid_segment_ids: set) -> Tuple[Optional[dict]
                 errors.append(f"{title}[{i}]: 'text' fehlt oder ist leer")
 
             # Sources are optional (see module docstring): the summary must
-            # work with models that omit them. Well-formed sources citing a
-            # real segment are kept; anything else is dropped silently -- a
+            # work with models that omit them. Cited S-ids are resolved against
+            # the transcript rows (speaker/timestamp/snippet come from the
+            # data, not the model); unknown ids are dropped silently, so a
             # missing or bad source never fails the whole analysis.
             quellen = item.get("quellen")
             cleaned: List[Dict[str, str]] = []
+            seen_sids = set()
             if isinstance(quellen, list):
-                for src in quellen:
-                    if not isinstance(src, dict):
+                for ref in quellen:
+                    sid = _source_sid(ref)
+                    if sid is None or sid not in by_sid or sid in seen_sids:
                         continue
-                    sid = src.get("segment_id")
-                    sprecher = src.get("sprecher")
-                    ts = src.get("timestamp")
-                    if (not _is_nonempty_str(sid) or sid.strip() not in valid_segment_ids
-                            or not _is_nonempty_str(sprecher)
-                            or not _is_nonempty_str(ts)):
-                        continue
-                    cleaned.append({
-                        "segment_id": sid.strip(),
-                        "sprecher": sprecher.strip(),
-                        "timestamp": ts.strip(),
-                    })
+                    seen_sids.add(sid)
+                    cleaned.append(_source_from_row(sid, by_sid[sid]))
 
             entry: Dict[str, Any] = {
                 "text": text.strip() if _is_nonempty_str(text) else "",
@@ -604,6 +648,7 @@ def render_markdown(analysis: Optional[Dict[str, Any]],
     missing = missing_text(lang)
     lbl = _ANALYSIS_LABELS_BY_LANG[_lang_code(lang)]
     out: List[str] = []
+    numbered: List[Any] = []  # all sources in document order (global [n])
     for key, _title, _ in SECTIONS:
         if key not in keys:
             continue
@@ -615,7 +660,16 @@ def render_markdown(analysis: Optional[Dict[str, Any]],
             if isinstance(e, str):
                 out.append(f"- {e}")
                 continue
-            out.append(f"- {e.get('text', '')}")
+            srcs = e.get("quellen")
+            srcs = srcs if isinstance(srcs, list) else []
+            numbered.extend(srcs)
+            line = f"- {e.get('text', '')}"
+            if srcs:
+                # Global [n] references, consistent with the UI rendering.
+                refs = " ".join(f"[{i}]" for i in
+                                range(len(numbered) - len(srcs) + 1, len(numbered) + 1))
+                line += " " + refs
+            out.append(line)
             if key == "aufgaben":
                 verantwortlich = e.get("verantwortlich")
                 deadline = e.get("deadline")
@@ -625,7 +679,17 @@ def render_markdown(analysis: Optional[Dict[str, Any]],
                     f"{lbl['deadline']}: "
                     f"{deadline if not is_missing(deadline) else missing}"
                 )
-            # Sources are intentionally not rendered: they are optional and no
-            # UI surface displays them.
+        out.append("")
+    if numbered:
+        out.append(f"## {lbl['quellen']}")
+        for n, src in enumerate(numbered, start=1):
+            if isinstance(src, dict):
+                sp = (src.get("sprecher") or "").strip()
+                ts = (src.get("timestamp") or "").strip()
+                sn = (src.get("snippet") or "").strip()
+            else:
+                sp = ts = sn = ""
+            head = f"{n}. {sp} \u00b7 {ts}" if (sp or ts) else f"{n}."
+            out.append(f"{head} \u2014 \u201e{sn}\u201c" if sn else head)
         out.append("")
     return "\n".join(out).rstrip() + "\n"

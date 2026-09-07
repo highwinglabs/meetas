@@ -58,6 +58,16 @@ class LLMEngine(ABC):
         """Lightweight "ready to be called" check (no inference, no side effects)."""
         return True
 
+    def get_context_window(self) -> Optional[int]:
+        """The model's context window in tokens, or ``None`` when unknown.
+
+        Best-effort hint used to size prompts (e.g. how much transcript the
+        analysis can carry). Implementations MUST NOT raise here -- any
+        detection failure simply yields ``None`` and callers fall back to a
+        safe default.
+        """
+        return None
+
     @abstractmethod
     def complete(self, prompt: str, system: Optional[str] = None, **opts: Any) -> LLMResult:
         """Run the analysis and return the model's text answer.

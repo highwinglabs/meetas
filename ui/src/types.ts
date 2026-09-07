@@ -50,9 +50,14 @@ export interface Job {
 }
 
 export interface AnalysisSource {
+  /** Positional S-id the model cited (new analyses); missing in legacy data. */
+  sid?: string;
+  /** Real segment id (new) or the positional S-id (legacy) -> transcript jump. */
   segment_id: string;
   sprecher: string;
   timestamp: string;
+  /** Short verbatim excerpt of the cited segment (new analyses). */
+  snippet?: string;
 }
 
 export interface AnalysisEntry {

@@ -34,38 +34,69 @@ from core.store.models import Analysis, Meeting, TranscriptSegment
 
 log = get_logger("ma.analysis")
 
-# Keep the prompt comfortably within a small local model's context window.
+# Fallback transcript budget (characters) used when the model's context
+# window is unknown -- keeps the prompt comfortably inside a small local
+# model's window.
 _MAX_TRANSCRIPT_CHARS = 24000
+# Tokens reserved for the prompt scaffolding / instructions around the
+# transcript, and a conservative characters-per-token rate for German text
+# when converting the remaining input budget into a character limit.
+_PROMPT_OVERHEAD_TOKENS = 4096
+_CHARS_PER_TOKEN = 3
+
+
+def transcript_char_budget(config: Any, window_tokens: Optional[int]) -> int:
+    """Max transcript characters that fit into the model's context window.
+
+    Reserves room for the prompt scaffolding and for the model's JSON answer
+    (the configured ``llm_max_tokens``, at least 1/8 of the window), converts
+    the remaining input budget to characters, and never goes below the safe
+    historical default. A missing or too-small window yields the default.
+    """
+    try:
+        window = int(window_tokens or 0)
+    except (TypeError, ValueError):
+        window = 0
+    if window <= 16384:
+        return _MAX_TRANSCRIPT_CHARS
+    output_reserve = max(int(getattr(config, "llm_max_tokens", 0) or 0),
+                        window // 8)
+    usable = window - output_reserve - _PROMPT_OVERHEAD_TOKENS
+    if usable < 8192:
+        return _MAX_TRANSCRIPT_CHARS
+    return max(_MAX_TRANSCRIPT_CHARS, usable * _CHARS_PER_TOKEN)
 
 
 def build_prompt(
     title: str,
-    segments: Sequence[Tuple[float, float, Optional[str], str]],
+    segments: Sequence[tuple],
     lang: Optional[str] = None,
     kind: str = "summary",
     override_system: Optional[str] = None,
     output_lang: Optional[str] = None,
+    max_chars: Optional[int] = None,
 ) -> Tuple[str, str]:
     """Return ``(system_prompt, user_prompt)`` for the structured JSON analysis.
 
-    ``segments`` is a sequence of ``(start_s, end_s, speaker_id, text)`` in
-    playback order. The user prompt carries positional ``S<n>`` segment ids for
-    orientation (sources are optional and no longer demanded from the model).
-    ``output_lang`` adds an explicit instruction to write all text content in
-    that language.
+    ``segments`` is a sequence of ``(start_s, end_s, speaker_id, text)`` (or
+    ``(..., real_segment_id)``) in playback order. The user prompt carries
+    positional ``S<n>`` segment ids for citing sources. ``max_chars`` bounds
+    the transcript (default: the safe historical limit). ``output_lang`` adds
+    an explicit instruction to write all text content in that language.
     """
-    rows = _trim(schema.to_seg_rows(segments))
+    rows = _trim(schema.to_seg_rows(segments),
+                 int(max_chars) if max_chars else _MAX_TRANSCRIPT_CHARS)
     return (override_system or schema.system_prompt(lang, output_lang),
             schema.build_user_prompt(title, rows, lang))
 
 
-def _trim(rows: Sequence[Dict[str, Any]]) -> list:
-    """Bound the transcript length (small local model context)."""
+def _trim(rows: Sequence[Dict[str, Any]], max_chars: int = _MAX_TRANSCRIPT_CHARS) -> list:
+    """Bound the transcript length to the model's context budget."""
     out: list = []
     total = 0
     for r in rows:
         line = schema._line(r)
-        if total + len(line) > _MAX_TRANSCRIPT_CHARS and out:
+        if total + len(line) > max_chars and out:
             break
         out.append(r)
         total += len(line)
@@ -92,6 +123,11 @@ class AnalysisProcessor:
         still_current: Optional[Callable[[], bool]] = None,
         output_lang: Optional[str] = None,
     ) -> Dict[str, Any]:
+        # 0) Size the transcript budget from the model's context window
+        #    (best-effort detection; unknown window -> safe default).
+        window = engine.get_context_window()
+        max_chars = transcript_char_budget(self.config, window)
+
         # 1) Preconditions (do not flip status to failed for a bad precondition).
         with session_scope() as s:
             meeting = s.get(Meeting, meeting_id)
@@ -108,8 +144,9 @@ class AnalysisProcessor:
                     "transkribieren, bevor es analysiert wird."
                 )
             rows = _trim(schema.to_seg_rows(
-                [(seg.start_s, seg.end_s, seg.speaker_id, seg.text) for seg in segs]
-            ))
+                [(seg.start_s, seg.end_s, seg.speaker_id, seg.text, seg.id)
+                 for seg in segs]
+            ), max_chars)
             title = meeting.title
             lang = meeting.lang
             # 2) Mark the resumable job + status (committed before the slow call).
@@ -142,7 +179,6 @@ class AnalysisProcessor:
         if _cancelled():
             return _finish_cancelled()
 
-        valid_ids = schema.segment_ids(rows)
         system_prompt = override_system or schema.system_prompt(lang)
         user_prompt = schema.build_user_prompt(title, rows, lang)
 
@@ -156,7 +192,7 @@ class AnalysisProcessor:
             raw = result.text
             model_used = result.model
             parsed = schema.extract_json(raw)
-            normalised, errors = schema.validate_analysis(parsed, valid_ids)
+            normalised, errors = schema.validate_analysis(parsed, rows)
             # 3b) One automatic self-correction, then fail clearly (no invention).
             if errors:
                 # Technical diagnosis only (answer length + reason) -- never the
@@ -178,7 +214,7 @@ class AnalysisProcessor:
                 raw = result2.text
                 model_used = result2.model or model_used
                 parsed = schema.extract_json(raw)
-                normalised, errors = schema.validate_analysis(parsed, valid_ids)
+                normalised, errors = schema.validate_analysis(parsed, rows)
                 if errors:
                     detail = "; ".join(errors[:8])
                     log.warning(
@@ -242,8 +278,10 @@ class AnalysisProcessor:
                 created_at = None
 
         log.info(
-            "analyze_done meeting=%s kind=%s model=%s chars=%d dur=%.2fs",
+            "analyze_done meeting=%s kind=%s model=%s chars=%d window=%s "
+            "transcript_chars=%d dur=%.2fs",
             meeting_id[:8], kind, model_used, len(content),
+            window, len("\n".join(schema._line(r) for r in rows)),
             round(time.monotonic() - t0, 3),
         )
         return {
