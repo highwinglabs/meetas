@@ -126,9 +126,15 @@ def _llm_models(config: Config) -> list[ModelSpec]:
         seen.add(mid)
         row = installed.get(mid, {})
         size = _format_size(row.get("size")) or "endpointabhängig"
-        out.append(ModelSpec(mid, name, "llm", purpose, size,
-                             "Ollama / llama.cpp", "DE, EN", installed=(mid in installed),
-                             note="Ollama" if mid in installed else "Nicht im lokalen Ollama-Katalog"))
+        is_installed = mid in installed
+        # The UI shows name + purpose only: prefix the detected provider into
+        # the name so the origin (Ollama / llama.cpp) is always visible.
+        provider = row.get("provider", "Ollama") if isinstance(row, dict) else "Ollama"
+        display_name = f"{provider}: {name}" if is_installed else name
+        out.append(ModelSpec(mid, display_name, "llm", purpose, size,
+                             provider if is_installed else "lokal (Ollama / llama.cpp)",
+                             "DE, EN", installed=is_installed,
+                             note=provider if is_installed else "Nicht lokal installiert"))
     # Surface every existing Ollama model, including custom names, so the UI
     # does not require hardcoded knowledge of a user's local model collection.
     for mid, row in installed.items():
