@@ -1,9 +1,10 @@
 """Structured, validated meeting-analysis schema (Phase 3).
 
-The analysis is a **mandatory JSON structure** with nine fixed areas. Every
-statement carries at least one *source* (``segment_id``, ``sprecher``,
-``timestamp``) so nothing is asserted without a traceable anchor in the
-transcript. Responsible persons / deadlines that the transcript does not state
+The analysis is a **mandatory JSON structure** with nine fixed areas.
+Statements *may* carry sources (``segment_id``, ``sprecher``, ``timestamp``),
+but sources are **optional**: small local models do not reliably emit them,
+and no UI surface displays them, so their absence must never fail a valid
+summary. Responsible persons / deadlines that the transcript does not state
 are normalised to the exact sentinel ``"nicht angegeben"`` -- they are never
 invented.
 
@@ -71,10 +72,7 @@ SYSTEM_PROMPT = (
     "deutsches Transkript und gibst AUSSCHLIESSLICH ein einziges, gueltiges "
     "JSON-Objekt aus: kein Markdown, keine Code-Zaune, kein Text davor oder "
     "danach. Du erfindest KEINE Fakten, Namen, Zahlen, Daten oder Fristen. Alles, "
-    "was das Transkript nicht ausdruemlich nennt, gibst du als \u201enicht angegeben\u201c an. "
-    "Jede Aussage braucht mindestens eine Quelle aus dem Transkript "
-    "(segment_id, sprecher, timestamp). Du zitierst ausschliesslich Segment-IDs, "
-    "die im Transkript vorkommen (z. B. S1, S2, ...)."
+    "was das Transkript nicht ausdruemlich nennt, gibst du als \u201enicht angegeben\u201c an."
 )
 
 
@@ -147,8 +145,8 @@ def _output_lang_directive(output_lang: Optional[str]) -> str:
         " Gib ALLE Textinhalte (Kurzfassung, Themen, Entscheidungen, Aufgaben, "
         "Offene Fragen, Naechste Schritte, Risiken, Wichtige Fakten, Follow-ups "
         "sowie jedes 'text'-Feld) auf " + name
-        + " aus. Uebersetze den Inhalt frei, halte aber Namen, Zahlen, Zitate "
-        "und alle Quellenangaben exakt bei."
+        + " aus. Uebersetze den Inhalt frei, halte aber Namen, Zahlen und "
+        "Zitate exakt bei."
     )
 
 
@@ -232,16 +230,15 @@ def system_prompt_for_template(template: Optional[str],
     key = (template or "standard").strip().lower()
     suffix = {
         "compact": " Arbeite besonders knapp und vermeide Wiederholungen.",
-        "audit": " Lege besonderen Wert auf Risiken, Nachweise, offene Punkte und konkrete Zusagen.",
-        "action_items": " Lege besonderen Wert auf Aufgaben, Verantwortliche, Fristen und deren Quellen.",
+        "audit": " Lege besonderen Wert auf Risiken, offene Punkte und konkrete Zusagen.",
+        "action_items": " Lege besonderen Wert auf Aufgaben, Verantwortliche und Fristen.",
     }.get(key, "")
     return system_prompt(lang, output_lang) + suffix
 
 FIX_SYSTEM_PROMPT = (
     "Du korrigierst fehlerhaftes JSON. Du gibst AUSSCHLIESSLICH ein gueltiges, "
     "vollstaendiges JSON-Objekt aus: kein Markdown, keine Code-Zaune, kein "
-    "anderer Text. Du erfindest keine Fakten und verweist nur auf Segment-IDs aus "
-    "dem vorgegebenen Transkript."
+    "anderer Text. Du erfindest keine Fakten."
 )
 
 
@@ -300,25 +297,19 @@ def build_user_prompt(title: str, rows: Sequence[Dict[str, Any]],
         keys,
         "",
         "Aufbau je Eintrag:",
-        f"- {base_keys}: {{\"text\": \"...\", \"quellen\": [ ... ]}}",
-        '- "aufgaben": {{"text": "...", "verantwortlich": "...", "deadline": "...", '
-        '"quellen": [ ... ]}}',
+        f"- {base_keys}: {{\"text\": \"...\"}}",
+        '- "aufgaben": {"text": "...", "verantwortlich": "...", "deadline": "..."}',
         f'  (verantwortlich/deadline exakt "{NOT_GIVEN}" wenn im Transkript nicht genannt)',
         "",
         "Regeln:",
-        '- Jeder Eintrag braucht "text" (nicht leer) und "quellen" (mindestens 1 Objekt).',
-        '- Jedes Objekt in "quellen" hat exakt: "segment_id", "sprecher", "timestamp" '
-        "(timestamp im Format HH:MM:SS-HH:MM:SS).",
-        '- "segment_id" NUR aus dem Transkript (S1, S2, ...). Keine unbekannten IDs erfinden.',
+        '- Jeder Eintrag braucht "text" (nicht leer).',
         "- Keine erfundenen Fakten, Namen, Zahlen oder Fristen.",
         "- Ausgabe: NUR das JSON-Objekt, sonst absolut nichts (kein Markdown, keine Code-Zaune).",
         "",
         "Beispiel (Struktur; Inhalte ersetzen):",
         "{",
-        '  "kurzfassung": [{"text": "...", "quellen": [{"segment_id": "S1", '
-        '"sprecher": "Anna", "timestamp": "00:00:00-00:00:04"}]}],',
-        '  "aufgaben": [{"text": "...", "verantwortlich": "Ben", "deadline": "Ende der Woche", '
-        '"quellen": [{"segment_id": "S2", "sprecher": "Ben", "timestamp": "00:00:04-00:00:09"}]}],',
+        '  "kurzfassung": [{"text": "..."}],',
+        '  "aufgaben": [{"text": "...", "verantwortlich": "Ben", "deadline": "Ende der Woche"}],',
         '  "risiken": []',
         "}",
         "",
@@ -332,7 +323,6 @@ def build_user_prompt(title: str, rows: Sequence[Dict[str, Any]],
 def build_fix_prompt(errors: Sequence[str], raw: str,
                      rows: Sequence[Dict[str, Any]]) -> str:
     err_list = "\n".join(f"- {e}" for e in list(errors)[:20])
-    valid = ", ".join(r["sid"] for r in rows)
     transcript = "\n".join(_line(r) for r in rows) if rows else "(leeres Transkript)"
     keys = ", ".join(k for k, _, _ in SECTIONS)
     return "\n".join([
@@ -342,9 +332,7 @@ def build_fix_prompt(errors: Sequence[str], raw: str,
         "",
         "Korrekturen:",
         f"- Alle 9 Pflicht-Bereiche vorhanden: {keys} (leeres Array [] ist erlaubt).",
-        '- Jeder Eintrag mit "text" und mindestens einer "quelle" '
-        '("segment_id", "sprecher", "timestamp").',
-        f"- Erlaubte Werte fuer segment_id: {valid}. Keine anderen IDs verwenden.",
+        '- Jeder Eintrag braucht "text" (nicht leer).',
         f'- Unbekannte Verantwortliche/Deadlines exakt: "{NOT_GIVEN}".',
         "- NUR das korrigierte, vollständige JSON-Objekt ausgeben (kein Markdown, keine Code-Zaune).",
         "",
@@ -558,37 +546,27 @@ def validate_analysis(data: Any, valid_segment_ids: set) -> Tuple[Optional[dict]
             if not _is_nonempty_str(text):
                 errors.append(f"{title}[{i}]: 'text' fehlt oder ist leer")
 
+            # Sources are optional (see module docstring): the summary must
+            # work with models that omit them. Well-formed sources citing a
+            # real segment are kept; anything else is dropped silently -- a
+            # missing or bad source never fails the whole analysis.
             quellen = item.get("quellen")
-            if not isinstance(quellen, list) or len(quellen) == 0:
-                errors.append(
-                    f"{title}[{i}]: 'quellen' fehlt oder ist leer "
-                    "(jede Aussage braucht mindestens eine Quelle)"
-                )
-                cleaned: List[Dict[str, str]] = []
-            else:
-                cleaned = []
-                for j, src in enumerate(quellen):
+            cleaned: List[Dict[str, str]] = []
+            if isinstance(quellen, list):
+                for src in quellen:
                     if not isinstance(src, dict):
-                        errors.append(f"{title}[{i}].quellen[{j}]: keine Quelle-Objekt")
                         continue
                     sid = src.get("segment_id")
-                    if not _is_nonempty_str(sid):
-                        errors.append(f"{title}[{i}].quellen[{j}]: 'segment_id' fehlt")
-                    elif sid.strip() not in valid_segment_ids:
-                        errors.append(
-                            f"{title}[{i}].quellen[{j}]: segment_id '{sid.strip()}' "
-                            "existiert nicht im Transkript (Quelle erfinden?)"
-                        )
                     sprecher = src.get("sprecher")
-                    if not _is_nonempty_str(sprecher):
-                        errors.append(f"{title}[{i}].quellen[{j}]: 'sprecher' fehlt")
                     ts = src.get("timestamp")
-                    if not _is_nonempty_str(ts):
-                        errors.append(f"{title}[{i}].quellen[{j}]: 'timestamp' fehlt")
+                    if (not _is_nonempty_str(sid) or sid.strip() not in valid_segment_ids
+                            or not _is_nonempty_str(sprecher)
+                            or not _is_nonempty_str(ts)):
+                        continue
                     cleaned.append({
-                        "segment_id": sid.strip() if _is_nonempty_str(sid) else "",
-                        "sprecher": sprecher.strip() if _is_nonempty_str(sprecher) else "",
-                        "timestamp": ts.strip() if _is_nonempty_str(ts) else "",
+                        "segment_id": sid.strip(),
+                        "sprecher": sprecher.strip(),
+                        "timestamp": ts.strip(),
                     })
 
             entry: Dict[str, Any] = {
@@ -647,11 +625,7 @@ def render_markdown(analysis: Optional[Dict[str, Any]],
                     f"{lbl['deadline']}: "
                     f"{deadline if not is_missing(deadline) else missing}"
                 )
-            for q in e.get("quellen", []) or []:
-                if isinstance(q, dict):
-                    out.append(
-                        f"  - {lbl['quelle']}: {q.get('segment_id', '?')} · "
-                        f"{q.get('sprecher', '?')} · {q.get('timestamp', '?')}"
-                    )
+            # Sources are intentionally not rendered: they are optional and no
+            # UI surface displays them.
         out.append("")
     return "\n".join(out).rstrip() + "\n"

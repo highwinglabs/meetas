@@ -138,12 +138,13 @@ def test_multiple_objects_picks_the_analysis():
     assert set(schema.SECTION_KEYS) <= set(data.keys())  # the analysis, not {status}
 
 
-def test_source_checking_still_enforced():
-    # Recognition is robust, but validation (sources) is NOT relaxed: a
-    # recognised object that cites a phantom segment must still be rejected.
+def test_phantom_sources_are_dropped_not_rejected():
+    # Recognition is robust and sources are optional: a recognised object that
+    # cites a phantom segment is valid; the bad source is dropped silently.
     obj = _valid()
     obj["themen"][0]["quellen"][0]["segment_id"] = "S99"  # does not exist
     data = schema.extract_json(json.dumps(obj, ensure_ascii=False))
     normalised, errors = schema.validate_analysis(data, valid_segment_ids={"S1"})
-    assert normalised is None
-    assert any("S99" in e for e in errors)
+    assert errors == []
+    assert normalised is not None
+    assert normalised["themen"][0]["quellen"] == []

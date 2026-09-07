@@ -1,11 +1,12 @@
 """Meeting analysis (Phase 3): transcript -> validated structured JSON analysis.
 
 The :class:`AnalysisProcessor` asks the (local) LLM engine to return a
-**mandatory JSON structure** (nine fixed areas, every statement with a source)
-for a stored transcript. The answer is parsed and *strictly validated*:
+**mandatory JSON structure** (nine fixed areas) for a stored transcript. The
+answer is parsed and *strictly validated*:
 
 * all nine areas must be present (empty lists allowed),
-* every statement needs >= 1 source with a segment_id that really exists,
+* sources are optional: well-formed sources citing a real segment are kept,
+  missing or invalid ones are dropped (small local models often omit them),
 * unknown responsible persons / deadlines are normalised to "nicht angegeben".
 
 If the model returns invalid or incomplete JSON, it is asked **once** to fix its
@@ -48,9 +49,10 @@ def build_prompt(
     """Return ``(system_prompt, user_prompt)`` for the structured JSON analysis.
 
     ``segments`` is a sequence of ``(start_s, end_s, speaker_id, text)`` in
-    playback order. The user prompt carries positional ``S<n>`` segment ids so
-    the model can (and must) cite real segments as sources. ``output_lang`` adds
-    an explicit instruction to write all text content in that language.
+    playback order. The user prompt carries positional ``S<n>`` segment ids for
+    orientation (sources are optional and no longer demanded from the model).
+    ``output_lang`` adds an explicit instruction to write all text content in
+    that language.
     """
     rows = _trim(schema.to_seg_rows(segments))
     return (override_system or schema.system_prompt(lang, output_lang),

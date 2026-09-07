@@ -104,10 +104,10 @@ def test_analyze_prompt_is_structured(config):
     assert "Wir starten am Montag" in user
     assert "[S1 | Sprecher: Sprecher 1" in user
     assert "[S2 |" in user
-    # all nine mandatory areas are demanded, with the source fields
+    # all nine mandatory areas are demanded; sources are NOT required anymore
     for key in NINE:
         assert key in user
-    assert "segment_id" in user and "sprecher" in user and "timestamp" in user
+    assert "segment_id" not in user and "quellen" not in user
 
 
 def test_analyze_system_prompt_transcript_language(config):
@@ -206,7 +206,8 @@ def test_render_markdown_default_is_german():
     assert "## Aufgaben / Action Items" in md
     assert "- nicht angegeben" in md
     assert "Verantwortlich: nicht angegeben" in md
-    assert "Quelle: S2" in md
+    # sources are optional and intentionally not rendered
+    assert "Quelle:" not in md
     # explicit "de", a German region tag and an unknown code stay byte-identical.
     assert schema.render_markdown(_sample_analysis(), lang="de") == md
     assert schema.render_markdown(_sample_analysis(), lang="de-DE") == md
@@ -220,7 +221,7 @@ def test_render_markdown_localised_english():
     assert "- not specified" in md
     assert "Owner: not specified" in md
     assert "Deadline: not specified" in md
-    assert "Source: S2" in md
+    assert "Source:" not in md  # sources are not rendered
     # the German headings / labels / sentinel must be gone
     assert "Kurzfassung" not in md
     assert "Verantwortlich" not in md
@@ -306,21 +307,36 @@ def test_analyze_always_invalid_fails_and_stores_nothing(config, finalize_meetin
     assert analyze_job and analyze_job[0]["status"] == "failed"
 
 
-def test_validate_analysis_flags_bad_source_and_missing_section():
-    # a cited segment that does not exist + a missing area -> both reported
+def test_validate_analysis_flags_missing_section_and_drops_bad_sources():
+    # a missing area is still reported
     normalised, errors = schema.validate_analysis(
         {k: [] for k in NINE[:-1]},  # drop "follow_ups" on purpose
         valid_segment_ids={"S1", "S2"},
     )
     assert normalised is None
     assert any("follow_ups" in e for e in errors)
-    # a statement citing a phantom segment is rejected
+    # sources are optional: a statement without sources is valid, and a
+    # phantom source (S99) is dropped silently instead of failing the output
     bad = {k: [] for k in NINE}
-    bad["themen"] = [{"text": "X", "quellen": [
-        {"segment_id": "S99", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]}]
+    bad["themen"] = [
+        {"text": "X", "quellen": [
+            {"segment_id": "S99", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]},
+        {"text": "Y"},  # no sources at all (small-model style output)
+    ]
     normalised2, errors2 = schema.validate_analysis(bad, {"S1", "S2"})
-    assert normalised2 is None
-    assert any("S99" in e for e in errors2)
+    assert errors2 == []
+    assert normalised2 is not None
+    assert normalised2["themen"][0]["quellen"] == []
+    assert normalised2["themen"][1]["quellen"] == []
+    # valid sources are still kept
+    good = {k: [] for k in NINE}
+    good["themen"] = [{"text": "Z", "quellen": [
+        {"segment_id": "S1", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]}]
+    normalised3, errors3 = schema.validate_analysis(good, {"S1", "S2"})
+    assert errors3 == []
+    assert normalised3 is not None
+    assert normalised3["themen"][0]["quellen"] == [
+        {"segment_id": "S1", "sprecher": "A", "timestamp": "00:00:00-00:00:01"}]
 
 
 def _valid_analysis_text():
@@ -372,18 +388,52 @@ def test_analyze_parses_wrapped_json(config, finalize_meeting, wrap):
             assert src["segment_id"] in ("S1", "S2")
 
 
-def test_analyze_wrapped_json_still_enforces_sources(config, finalize_meeting):
-    """Recognition is robust, but a wrapped answer that cites a phantom segment
-    must still fail (no invented sources), even though the object is found."""
+def test_analyze_wrapped_json_drops_phantom_sources(config, finalize_meeting):
+    """Sources are optional: a wrapped answer citing only phantom segments is
+    stored successfully, with the invented sources dropped (no correction round)."""
     bad = _valid_analysis_text()
-    bad = bad.replace('"S1"', '"S99"')
+    bad = bad.replace('"S1"', '"S99"').replace('"S2"', '"S99"')
     text = "think\nnachdenken.\n/think\n```json\n" + bad + "\n```"
     mock = MockLLM(text=text)
     svc, mid = _with_transcript(finalize_meeting, llm_engine=mock)
-    with pytest.raises(LLMError):
-        svc.analyze(mid)
-    assert mock.calls == 2  # one correction attempted, then a clear failure
-    assert svc.get_meeting(mid)["analyses"] == []
+    out = svc.analyze(mid)
+    assert out["status"] == "done"
+    assert mock.calls == 1  # phantom sources are dropped, not rejected
+    data = json.loads(out["content"])
+    for key in NINE:
+        for entry in data[key]:
+            assert entry["quellen"] == []
+
+
+def test_analyze_accepts_analysis_without_sources(config, finalize_meeting):
+    """Regression: small models (e.g. Gemma) often omit the sources entirely.
+    A complete analysis without any 'quellen' is a VALID summary: it must be
+    stored on the first try, without a correction round and without failure."""
+    data = {
+        "kurzfassung": [{"text": "Austausch ueber das Projekt."}],
+        "themen": [{"text": "Roadmap"}, {"text": "Budget"}],
+        "entscheidungen": [{"text": "Budget freigegeben"}],
+        "aufgaben": [{"text": "Konzept schreiben",
+                      "verantwortlich": "nicht angegeben",
+                      "deadline": "nicht angegeben"}],
+        "offene_fragen": [{"text": "Wann geht es weiter?"}],
+        "naechste_schritte": [],
+        "risiken": [],
+        "wichtige_fakten": [],
+        "follow_ups": [],
+    }
+    mock = MockLLM(text=json.dumps(data, ensure_ascii=False))
+    svc, mid = _with_transcript(finalize_meeting, llm_engine=mock)
+    out = svc.analyze(mid)
+    assert out["status"] == "done"
+    assert mock.calls == 1  # no correction round needed
+    parsed = json.loads(out["content"])
+    assert parsed["kurzfassung"] == [{"text": "Austausch ueber das Projekt.",
+                                      "quellen": []}]
+    assert parsed["aufgaben"][0]["verantwortlich"] == "nicht angegeben"
+    # sources are not rendered into the markdown either
+    assert "Quelle:" not in out["markdown"]
+    assert svc.get_meeting(mid)["status"] == "done"
 
 
 def test_analyze_no_transcript_raises_without_status_flip(config, finalize_meeting):
