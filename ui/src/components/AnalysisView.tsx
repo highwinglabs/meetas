@@ -136,7 +136,7 @@ export default function AnalysisView({ content, markdown, model, outputLanguage,
       )}
       {allSources.length > 0 && (
         <div className="analysis-section">
-          <h3>{t("analysis.sources")}</h3>
+          <h3>{t("analysis.sources")} ({allSources.length})</h3>
           <div className="rag-sources">
             {allSources.map((src, i) => {
               const n = i + 1;
