@@ -95,12 +95,20 @@ def _openai_compatible_models(config: Config) -> dict[str, dict]:
             if isinstance(row, dict) and row.get("id")}
 
 
+def _pretty_llm_name(mid: str) -> str:
+    """Display name for role-bound models: the id itself (no hardcoded family
+    guesses that go stale when the user configures a different model)."""
+    mid = str(mid or "").strip()
+    base, _, tag = mid.partition(":")
+    return f"{base} ({tag})" if tag else (mid or "?")
+
+
 def _llm_models(config: Config) -> list[ModelSpec]:
     # These are choices, not downloads. The local endpoint may expose a subset;
     # the model test reports whether a selected id is accepted by that endpoint.
     ids: list[tuple[str, str, str]] = [
-        (config.default_summary_model, "Qwen3.5 4B", "schnelle Analyse"),
-        (config.quality_analysis_model, "Qwen 27B (vorhanden)", "maximale Analysequalität"),
+        (config.default_summary_model, _pretty_llm_name(config.default_summary_model), "schnelle Analyse"),
+        (config.quality_analysis_model, _pretty_llm_name(config.quality_analysis_model), "maximale Analysequalität"),
         ("gemma4:e4b", "Gemma 4 E4B", "kompakte Analyse"),
         ("gemma4:9b", "Gemma 4 9B", "ausgewogene Analyse"),
         ("gemma4:26b", "Gemma 4 26B", "qualitative Analyse"),
