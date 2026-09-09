@@ -339,6 +339,13 @@ hardware is present. Both paths can be forced explicitly. Details:
    normal model-confirmation gate. With this backend `auto`/`cuda` map to the
    Vulkan GPU. Live transcription (Parakeet) is unaffected.
 
+   On hybrid systems (iGPU + discrete GPU) whisper.cpp would default to the
+   first Vulkan device — usually the slow iGPU. The app therefore identifies the
+   discrete GPU via `vulkaninfo --summary` (vulkan-tools, optional) and
+   restricts ggml's device list to it through `GGML_VK_VISIBLE_DEVICES`, so the
+   fast card is used automatically. Without `vulkaninfo` the default device
+   selection applies.
+
 **Choosing a microphone:** set `input_device_name` to a case-insensitive substring
 of your device name (e.g. `"headset"`), or `input_device_index` to an explicit
 PortAudio index. Leave both unset to use the system default device.

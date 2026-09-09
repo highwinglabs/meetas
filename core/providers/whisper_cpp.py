@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 
@@ -46,6 +48,48 @@ def vulkan_available() -> bool:
         except OSError:
             continue
     return False
+
+
+def _parse_vulkan_summary(stdout: str) -> int | None:
+    """First DISCRETE_GPU index from ``vulkaninfo --summary`` output, else None."""
+    index: int | None = None
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line.startswith("GPU") and line.endswith(":"):
+            try:
+                index = int(line[3:-1])
+            except ValueError:
+                index = None
+        elif index is not None and "deviceType" in line:
+            if "DISCRETE_GPU" in line:
+                return index
+            index = None
+    return None
+
+
+def discrete_vulkan_device_index() -> int | None:
+    """Index of the first discrete GPU in Vulkan's device list, else None.
+
+    whisper.cpp (ggml-vulkan) uses the *first* Vulkan device by default, which
+    on hybrid systems (iGPU + dGPU) is usually the slow iGPU. To make the
+    discrete card the one that is actually used, the caller restricts ggml's
+    device list via the ``GGML_VK_VISIBLE_DEVICES`` environment variable
+    (ggml's own CUDA_VISIBLE_DEVICES-style switch). The index must be the
+    raw ``vkEnumeratePhysicalDevices`` index; ``vulkaninfo --summary``
+    (vulkan-tools) reports exactly that. Returns None when the tool is not
+    available so the caller falls back to whisper.cpp's default behavior.
+    """
+    exe = shutil.which("vulkaninfo")
+    if exe is None:
+        return None
+    try:
+        proc = subprocess.run([exe, "--summary"], capture_output=True, text=True,
+                              timeout=15)
+        if proc.returncode != 0:
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return _parse_vulkan_summary(proc.stdout)
 
 
 def binding_available() -> bool:
@@ -165,11 +209,23 @@ class WhisperCppEngine(ASREngine):
                     layers = self._gpu_layers()
                     log.info("loading whisper-cpp model=%s gpu_layers=%s local_only=%s",
                              self.model_name, layers, local_files_only)
-                    # This binding exposes GPU offload as a binary switch
-                    # (all layers on the GPU) via the context/init params.
-                    self._model = Model(model=str(self._model_file()),
-                                        context_params={"use_gpu": layers != 0})
+                    if layers != 0:
+                        self._model = self._load_gpu_model(Model)
+                    else:
+                        self._model = Model(model=str(self._model_file()),
+                                             context_params={"use_gpu": False})
         return self._model
+
+    def _load_gpu_model(self, model_cls):
+        # whisper.cpp (ggml-vulkan) picks the first visible Vulkan device;
+        # on hybrid systems that is usually the iGPU. Restrict ggml's device
+        # list to the discrete GPU (if identifiable) so the fast card is used.
+        idx = discrete_vulkan_device_index()
+        if idx is not None:
+            os.environ["GGML_VK_VISIBLE_DEVICES"] = str(idx)
+            log.info("whisper-cpp: using discrete Vulkan GPU (device %s)", idx)
+        return model_cls(model=str(self._model_file()),
+                         context_params={"use_gpu": True})
 
     def transcribe(self, audio_path: Path | str,
                    language: str | None = None) -> list[ASRSegment]:

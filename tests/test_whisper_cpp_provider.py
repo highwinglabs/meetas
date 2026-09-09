@@ -5,6 +5,7 @@ fake ``pywhispercpp`` module into ``sys.modules`` and exercise the engine's
 own logic: device resolution, model handling, segment normalization and the
 ProviderManager dispatch.
 """
+import os
 import sys
 import types
 
@@ -56,6 +57,15 @@ def _make_model_file(config, model_name: str = "small") -> None:
     (config.models_dir / f"ggml-{model_name}.bin").write_bytes(b"fake")
 
 
+@pytest.fixture(autouse=True)
+def _no_device_detection(monkeypatch):
+    """Keep tests offline/deterministic: no vulkaninfo probe, clean env."""
+    from core.providers import whisper_cpp
+    monkeypatch.delenv("GGML_VK_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr(whisper_cpp, "discrete_vulkan_device_index",
+                        lambda: None)
+
+
 def test_device_resolution_and_gpu_layers(fake_pywhispercpp):
     from core.providers.whisper_cpp import WhisperCppEngine
     cpu = WhisperCppEngine(model_name="small", device="cpu")
@@ -105,6 +115,46 @@ def test_transcribe_uses_gpu_flag_for_vulkan(fake_pywhispercpp, config):
     audio.write_bytes(b"RIFF...")
     eng.transcribe(audio, language="de")
     assert _FakeModel.instances[-1].context_params == {"use_gpu": True}
+    # no discrete GPU identifiable -> default device selection, no env filter
+    assert "GGML_VK_VISIBLE_DEVICES" not in os.environ
+
+
+def test_gpu_model_load_restricts_to_discrete_device(
+        fake_pywhispercpp, config, monkeypatch):
+    # Discrete GPU found at raw Vulkan index 1 -> ggml must be restricted to
+    # exactly that device (CUDA_VISIBLE_DEVICES-style).
+    from core.providers import whisper_cpp
+    from core.providers.whisper_cpp import WhisperCppEngine
+    monkeypatch.setattr(whisper_cpp, "discrete_vulkan_device_index",
+                        lambda: 1)
+    _make_model_file(config, "small")
+    eng = WhisperCppEngine(model_name="small", device="vulkan", config=config)
+    audio = config.base_dir / "audio.wav"
+    audio.write_bytes(b"RIFF...")
+    eng.transcribe(audio)
+    assert os.environ["GGML_VK_VISIBLE_DEVICES"] == "1"
+    assert _FakeModel.instances[-1].context_params == {"use_gpu": True}
+
+
+def test_parse_vulkan_summary(monkeypatch):
+    from core.providers import whisper_cpp
+
+    fake_out = """
+GPU0:
+\tdeviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+\tdeviceName         = AMD Radeon Graphics (RADV RAPHAEL_MENDOCINO)
+GPU1:
+\tdeviceType         = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+\tdeviceName         = Radeon RX 7900 XTX (RADV NAVI31)
+GPU2:
+\tdeviceType         = PHYSICAL_DEVICE_TYPE_CPU
+\tdeviceName         = llvmpipe (LLVM 20.1.2, 256 bits)
+"""
+    assert whisper_cpp._parse_vulkan_summary(fake_out) == 1
+    # only iGPU / no devices -> None (caller keeps default behavior)
+    assert whisper_cpp._parse_vulkan_summary("") is None
+    assert whisper_cpp._parse_vulkan_summary(
+        "GPU0:\n\tdeviceType = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\n") is None
 
 
 def test_transcribe_requires_ready_model(fake_pywhispercpp, config):
