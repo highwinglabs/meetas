@@ -44,7 +44,7 @@ class ModelsMixin:
     def asr_model_status(self, model_name: str | None = None) -> dict:
         engine = self._asr_engine(model_name)
         ready = engine.is_model_ready()
-        note = engine.model_size_note() if isinstance(engine, FasterWhisperEngine) else ""
+        note = getattr(engine, "model_size_note", lambda: "")()
         return {
             "name": engine.model_name,
             "ready": ready,

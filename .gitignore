@@ -50,3 +50,6 @@ AGENTS.md
 .idea/
 .vscode/
 .DS_Store
+
+# Local working notes (machine-specific, not for the public repo)
+STATE.md

@@ -144,6 +144,7 @@ def test_bootstrap_migration_marks_existing_installs(client, tmp_path):
     cfg = Config(base_dir=tmp_path)
     set_config(cfg)
     cfg.ollama_base_url = "http://127.0.0.1:1/v1"
+    cfg.asr_engine = "faster-whisper"  # deterministic: test the CT2 model layout
     cfg.ensure_dirs()
     setup_logging("WARNING", cfg.log_path, to_stderr=False)
     _model_file(cfg).parent.mkdir(parents=True, exist_ok=True)

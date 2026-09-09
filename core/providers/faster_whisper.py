@@ -7,6 +7,8 @@ rest of the system runs without it installed.
 """
 from __future__ import annotations
 
+import ctypes
+import os
 import threading
 from pathlib import Path
 
@@ -80,9 +82,32 @@ def _progress_tqdm_factory(on_progress):
     return factory
 
 
+def _preload_rocm_runtime() -> None:
+    """Make the CTranslate2 ROCm wheel importable without a system LD_LIBRARY_PATH.
+
+    The official AMD wheel links against ROCm shared libraries (libamdhip64,
+    libhiprand, libhipblas, librocrand, ...) that are often installed in
+    /opt/rocm-*/lib, which glibc does not search by default. Preloading them
+    (RTLD_GLOBAL) resolves the import at runtime; when the loader already finds
+    them (e.g. via ldconfig or LD_LIBRARY_PATH) this is a no-op.
+    """
+    lib_dirs = [d for d in os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep) if d]
+    lib_dirs += ["/opt/rocm-7.2.0/lib", "/opt/rocm/lib"]
+    for name in ("libamdhip64.so.7", "libhsa-runtime64.so.1", "libamd_comgr.so.3",
+                 "libhipblas.so.3", "libhiprand.so.1", "librocrand.so.1"):
+        for d in lib_dirs:
+            path = os.path.join(d, name)
+            if os.path.exists(path):
+                try:
+                    ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    log.warning("could not preload ROCm library %s", path)
+                break
+
+
 class FasterWhisperEngine(ASREngine):
     def __init__(self, model_name: str = "small", compute_type: str = "int8",
-                 device: str = "cpu", config: Config | None = None):
+                 device: str = "auto", config: Config | None = None):
         self.config = config or get_config()
         self.model_name = model_name
         self.compute_type = compute_type
@@ -199,18 +224,39 @@ class FasterWhisperEngine(ASREngine):
             f"ASR-Modell '{self.model_name}' konnte nicht heruntergeladen werden "
             f"({last_error})") from last_error
 
+    def resolved_device(self) -> str:
+        """Resolve "auto" to the best available CTranslate2 device.
+
+        Requires the CTranslate2 module to be importable; with a ROCm wheel
+        the runtime libraries must be preloaded first (see _load_model).
+        """
+        if self.device in ("cpu", "cuda"):
+            return self.device
+        try:
+            import ctranslate2
+            return "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+        except Exception as exc:
+            log.warning("ASR device auto-detect failed, using CPU: %s", exc)
+            return "cpu"
+
     def _load_model(self, local_files_only: bool = False):
         if self._model is None:
             # Double-checked: only one thread pays for the expensive load; the
             # rest wait and reuse the shared model (L9).
             with self._model_lock:
                 if self._model is None:
+                    _preload_rocm_runtime()  # no-op when loader already resolves ROCm libs
                     from faster_whisper import WhisperModel  # lazy heavy import
+                    device = self.resolved_device()  # after preload: ROCm libs are importable
+                    # int8 is a CPU quantization; on the GPU fp16 is the
+                    # supported and faster choice.
+                    compute = ("float16" if device == "cuda" and self.compute_type == "int8"
+                               else self.compute_type)
                     self.download_root.mkdir(parents=True, exist_ok=True)
                     log.info("loading ASR model=%s compute=%s device=%s local_only=%s",
-                             self.model_name, self.compute_type, self.device, local_files_only)
+                             self.model_name, compute, device, local_files_only)
                     self._model = WhisperModel(
-                        self.model_name, device=self.device, compute_type=self.compute_type,
+                        self.model_name, device=device, compute_type=compute,
                         download_root=str(self.download_root), local_files_only=local_files_only)
         return self._model
 

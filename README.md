@@ -294,6 +294,8 @@ No credentials are required. All settings:
 | `MA_NETWORK_ALLOWED` | `false` | Allow network access (model downloads) |
 | `MA_SAMPLE_RATE` / `MA_CHANNELS` | `16000` / `1` | Capture defaults |
 | `MA_ASR_MODEL` | `small` | Final/batch ASR model |
+| `MA_ASR_ENGINE` | `auto` | ASR backend: `auto` (GPU when available, else CPU – default), `faster-whisper`, or `whisper-cpp` (see GPU ASR) |
+| `MA_ASR_DEVICE` | `auto` | ASR device: `auto`, `cpu`, or `cuda` (faster-whisper: CUDA/ROCm GPU; whisper-cpp: Vulkan GPU) |
 | `MA_LIVE_ASR_MODEL` | `parakeet-tdt-0.6b-v3-int8` | Live ASR model (opt-in) |
 | `MA_ASR_LANGUAGE` | auto | Force the transcription language (empty = auto-detect) |
 | `MA_LIVE_TRANSCRIPTION` | `false` | Rolling-window live transcription |
@@ -305,6 +307,37 @@ No credentials are required. All settings:
 | `MA_LLM_MOCK` | `false` | Use the deterministic mock LLM (no server call) |
 | `MA_EMBEDDINGS` / `MA_RAG` | `true` / `true` | Local relevance index / grounded RAG |
 | `MA_AUTO_PIPELINE` / `MA_AUTO_ANALYZE` | `false` / `false` | Auto-processing after stop |
+
+### GPU ASR
+
+The default `MA_ASR_ENGINE=auto` picks the GPU path when one exists and falls
+back to CPU – no configuration needed: with pywhispercpp installed and a Vulkan
+loader present it uses whisper-cpp + Vulkan (the reliable path on AMD),
+otherwise faster-whisper, whose device `auto` then selects CUDA when NVIDIA
+hardware is present. Both paths can be forced explicitly. Details:
+
+1. **faster-whisper + CUDA/ROCm:** install the CTranslate2 wheel matching your GPU
+   stack (e.g. the AMD ROCm wheel, see the CTranslate2 docs), then set
+   `MA_ASR_DEVICE=cuda`. On AMD the app loads the ROCm runtime libraries itself;
+   system packages `hipblas`, `hiprand`, `rocrand` (matching ROCm version) are
+   required. Caveat: CTranslate2 ROCm wheels currently crash with
+   `beam_size >= 2` (upstream bug) — use path 2 until that is fixed upstream.
+2. **whisper-cpp + Vulkan (recommended for AMD, e.g. RDNA3):**
+
+   ```bash
+   # CPU: prebuilt wheel
+   uv pip install pywhispercpp
+   # GPU: source build (cmake, a C++ toolchain, apt package `glslc`, and the
+   # Khronos SPIRV-Headers CMake package, see core/providers/whisper_cpp.py)
+   GGML_VULKAN=1 pip install pywhispercpp
+   ```
+
+   With pywhispercpp importable and a Vulkan loader present, the default
+   `MA_ASR_ENGINE=auto` now selects this backend automatically; set
+   `MA_ASR_ENGINE=whisper-cpp` to force it. Models are the ggml files from
+   `ggerganov/whisper.cpp` (e.g. `ggml-small.bin`) and are downloaded through the
+   normal model-confirmation gate. With this backend `auto`/`cuda` map to the
+   Vulkan GPU. Live transcription (Parakeet) is unaffected.
 
 **Choosing a microphone:** set `input_device_name` to a case-insensitive substring
 of your device name (e.g. `"headset"`), or `input_device_index` to an explicit

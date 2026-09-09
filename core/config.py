@@ -125,6 +125,14 @@ class Config:
     # models remain selectable but must be downloaded explicitly first.
     quality_asr_model: str = "small"
     asr_compute_type: str = "int8"  # CPU-efficient quantization
+    # Device for faster-whisper (CTranslate2): "auto" uses the GPU when a
+    # CTranslate2 GPU runtime (CUDA or AMD ROCm) is available, else CPU;
+    # "cpu"/"cuda" force the respective device.
+    asr_device: str = "auto"
+    # Batch ASR backend: "auto" (default) picks the GPU path when available
+    # (whisper-cpp/Vulkan on AMD, CTranslate2/CUDA on NVIDIA) and falls back
+    # to faster-whisper on the CPU; the other values force a specific engine.
+    asr_engine: str = "auto"
     asr_language: Optional[str] = None  # None = auto-detect per meeting (de/en expected)
     # Output language for the LLM analysis. "wie_transkript" (default) writes in
     # the transcript's own language; "de"/"en" force that language. This is the
@@ -387,6 +395,8 @@ class Config:
         cfg.live_fallback_asr_model = _env_str("LIVE_FALLBACK_ASR_MODEL", cfg.live_fallback_asr_model)
         cfg.quality_asr_model = _env_str("QUALITY_ASR_MODEL", cfg.quality_asr_model)
         cfg.asr_compute_type = _env_str("ASR_COMPUTE", cfg.asr_compute_type)
+        cfg.asr_device = _env_str("ASR_DEVICE", cfg.asr_device)
+        cfg.asr_engine = _env_str("ASR_ENGINE", cfg.asr_engine)
         cfg.asr_language = _env_str("ASR_LANGUAGE", cfg.asr_language or "") or None
         cfg.analysis_language = _env_str("ANALYSIS_LANGUAGE", cfg.analysis_language) or "wie_transkript"
         cfg.default_speaker_mode = _env_str("SPEAKER_MODE", cfg.default_speaker_mode)
@@ -510,9 +520,13 @@ class Config:
             cfg.audio_enhancement_profile = defaults.audio_enhancement_profile
         else:
             cfg.audio_enhancement_profile = cfg.audio_enhancement_profile.strip()
+        if cfg.asr_device not in ("auto", "cpu", "cuda"):
+            cfg.asr_device = defaults.asr_device
+        if cfg.asr_engine not in ("auto", "faster-whisper", "whisper-cpp"):
+            cfg.asr_engine = defaults.asr_engine
         for name in ("host", "log_level", "log_file", "asr_model",
                      "live_asr_model", "live_fallback_asr_model", "quality_asr_model",
-                     "asr_compute_type", "default_summary_model",
+                     "asr_compute_type", "asr_device", "asr_engine", "default_summary_model",
                      "quality_analysis_model", "diarization_backend",
                      "pyannote_model", "llm_base_url", "ollama_base_url",
                      "llm_model"):

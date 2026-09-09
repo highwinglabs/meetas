@@ -33,6 +33,12 @@ dev = [
 diar = [
     "torch>=2.2",
 ]
+# Optional second ASR backend (whisper.cpp/ggml). The PyPI wheels are
+# CPU-only; for GPU (e.g. AMD RDNA via Vulkan) build from source instead:
+#   GGML_VULKAN=1 pip install pywhispercpp
+whisper-cpp = [
+    "pywhispercpp>=1.5",
+]
 
 [project.scripts]
 meeting-core = "core.cli:main"
@@ -50,7 +56,8 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
 
-# CPU-only PyTorch wheels (this host has no GPU) - keeps the environment lean.
+# CPU-only PyTorch wheels - keeps the environment lean (GPU inference for
+# ASR goes through CTranslate2-ROCm or whisper.cpp/Vulkan, not PyTorch).
 [tool.uv]
 [[tool.uv.index]]
 name = "pytorch-cpu"

@@ -42,6 +42,11 @@ ASR_SPECS = (
 
 def _whisper_ready(config: Config, model_id: str) -> bool:
     try:
+        from core.providers.manager import ProviderManager
+        engine_name = ProviderManager(config).engine_name()
+        if engine_name == "whisper-cpp":
+            from core.providers.whisper_cpp import WhisperCppEngine
+            return WhisperCppEngine(model_name=model_id, config=config).is_model_ready()
         from core.providers.faster_whisper import FasterWhisperEngine
         return FasterWhisperEngine(model_name=model_id, config=config).is_model_ready()
     except Exception:

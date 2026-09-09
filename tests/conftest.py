@@ -81,6 +81,10 @@ def config(tmp_path, monkeypatch):
     # stays deterministic (no background worker threads). P3-specific tests
     # enable it explicitly.
     config.auto_pipeline = False
+    # Pin the ASR engine so tests are deterministic regardless of the host:
+    # the "auto" default probes the GPU stack (Vulkan/CUDA + native bindings),
+    # which varies per machine. Auto-resolution is covered by its own tests.
+    config.asr_engine = "faster-whisper"
     set_config(config)
     config.ensure_dirs()
     setup_logging("WARNING", config.log_path, to_stderr=False)
