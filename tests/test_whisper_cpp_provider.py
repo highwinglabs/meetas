@@ -117,6 +117,42 @@ def test_transcribe_requires_ready_model(fake_pywhispercpp, config):
         eng.transcribe(audio)
 
 
+def test_transcribe_streams_segments_for_progress(config, monkeypatch):
+    # A binding like v1.5.x: transcribe() accepts new_segment_callback and
+    # fires it per decoded segment -> the engine must report live progress.
+    from core.providers.whisper_cpp import WhisperCppEngine
+
+    class _StreamingModel:
+        def __init__(self, model: str, context_params=None, **params):
+            pass
+
+        def transcribe(self, path, new_segment_callback=None, **kwargs):
+            segments = [_FakeSegment(0, 2000, "Hallo"),
+                        _FakeSegment(2000, 4000, "Welt")]
+            if new_segment_callback is not None:
+                for s in segments:
+                    new_segment_callback(s)
+            return segments
+
+    model_mod = types.ModuleType("pywhispercpp.model")
+    model_mod.Model = _StreamingModel
+    pkg = types.ModuleType("pywhispercpp")
+    pkg.model = model_mod
+    monkeypatch.setitem(sys.modules, "pywhispercpp", pkg)
+    monkeypatch.setitem(sys.modules, "pywhispercpp.model", model_mod)
+
+    _make_model_file(config, "small")
+    eng = WhisperCppEngine(model_name="small", config=config)
+    audio = config.base_dir / "audio.wav"
+    audio.write_bytes(b"RIFF...")
+    seen: list = []
+    segs = eng.transcribe_with_progress(audio, language="de",
+                                        on_segment=seen.append)
+    assert [s.text for s in segs] == ["Hallo", "Welt"]
+    # reported per segment while decoding, not only at the end
+    assert [s.text for s in seen] == ["Hallo", "Welt"]
+
+
 def test_missing_binding_raises_helpful_error(config, monkeypatch):
     # Simulate "never installed": drop any cached binding modules so the lazy
     # import really fails (an already-imported binding is, by definition, present).

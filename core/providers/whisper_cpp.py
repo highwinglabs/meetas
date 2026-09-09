@@ -185,16 +185,10 @@ class WhisperCppEngine(ASREngine):
         if not audio_path.is_file():
             raise ASRError(f"Audio-Datei nicht gefunden: {audio_path}")
         model = self._load_model(local_files_only=True)
-        # v1.5.x binding: beam search is configured via a nested dict.
-        result = model.transcribe(
-            str(audio_path),
-            language=language or None,
-            beam_search={"beam_size": 5, "patience": -1.0},
-        )
-        # pywhispercpp yields dicts ("start"/"end"/"text") or Segment objects
-        # (t0/t1/text); normalize both.
-        out: list[ASRSegment] = []
-        for seg in result:
+
+        def _normalize(seg) -> ASRSegment | None:
+            # pywhispercpp yields dicts ("start"/"end"/"text") or Segment
+            # objects (t0/t1/text); normalize both.
             if isinstance(seg, dict):
                 text = str(seg.get("text") or "").strip()
                 start_raw, end_raw = seg.get("start", 0.0), seg.get("end", 0.0)
@@ -205,7 +199,7 @@ class WhisperCppEngine(ASREngine):
                 start_raw = float(getattr(seg, "t0", 0)) / 100.0
                 end_raw = float(getattr(seg, "t1", 0)) / 100.0
             if not text:
-                continue
+                return None
             try:
                 start_s = round(float(start_raw), 3)
                 end_s = round(float(end_raw), 3)
@@ -213,9 +207,57 @@ class WhisperCppEngine(ASREngine):
                 raise ASRError("ASR lieferte ungültige Zeitdaten.")
             if end_s < start_s:
                 raise ASRError("ASR lieferte ungültige Zeitdaten.")
-            item = ASRSegment(start_s=start_s, end_s=end_s, text=text,
+            return ASRSegment(start_s=start_s, end_s=end_s, text=text,
                               language=language, raw_text=text)
-            out.append(item)
-            if on_segment is not None:
-                on_segment(item)
+
+        out: list[ASRSegment] = []
+        out_lock = threading.Lock()
+
+        # Stream segments while they are decoded so callers can report real
+        # progress (whisper.cpp would otherwise only yield at the very end).
+        # The callback fires from the native decode thread: keep it fast and
+        # never let an exception escape into the C layer.
+        use_callback = False
+        if on_segment is not None:
+            import inspect
+            use_callback = "new_segment_callback" in inspect.signature(
+                model.transcribe).parameters
+
+            def _on_new_segment(seg) -> None:
+                try:
+                    item = _normalize(seg)
+                    if item is None:
+                        return
+                    with out_lock:
+                        out.append(item)
+                    on_segment(item)
+                except Exception:
+                    log.debug("whisper-cpp segment callback failed",
+                              exc_info=True)
+
+        # v1.5.x binding: beam search is configured via a nested dict.
+        if use_callback:
+            result = model.transcribe(
+                str(audio_path),
+                language=language or None,
+                beam_search={"beam_size": 5, "patience": -1.0},
+                new_segment_callback=_on_new_segment,
+            )
+        else:
+            result = model.transcribe(
+                str(audio_path),
+                language=language or None,
+                beam_search={"beam_size": 5, "patience": -1.0},
+            )
+
+        # Fallback for bindings without the callback: report everything at
+        # the end (no live progress, same segments).
+        if not out:
+            for seg in result:
+                item = _normalize(seg)
+                if item is None:
+                    continue
+                out.append(item)
+                if on_segment is not None:
+                    on_segment(item)
         return out
