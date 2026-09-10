@@ -162,6 +162,13 @@ class MeetingsMixin:
                 except OSError as exc:
                     log.warning("project_file_delete_failed meeting=%s error=%s",
                                 meeting_id[:8], exc)
+        # The meeting's audio dir is deterministically named.  Delete it even
+        # when no stored path points into it: a failed assembly leaves
+        # original_path NULL but the chunk files behind, and a "permanent
+        # delete" must not preserve the raw audio of a deleted meeting.
+        meeting_audio = (self.config.audio_dir / meeting_id).resolve()
+        if meeting_audio.parent == audio_root and meeting_audio.is_dir():
+            folders.add(meeting_audio)
         for folder in folders:
             try:
                 shutil.rmtree(folder)

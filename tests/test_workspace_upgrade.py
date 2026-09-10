@@ -106,3 +106,26 @@ def test_manual_transcription_is_persistent_background_job(finalize_meeting):
             break
         time.sleep(0.02)
     assert job is not None and job["status"] == "done"
+
+
+def test_permanent_delete_removes_audio_dir_without_original_path(finalize_meeting, config):
+    """F3: a failed assembly (original_path NULL) must not leave the meeting's
+    audio directory (raw chunks included) on disk after a permanent delete."""
+    from core.store.db import session_scope
+    from core.store.models import Recording
+
+    svc, mid = finalize_meeting(title="Broken")
+    with session_scope() as s:
+        rec = s.scalar(select(Recording).where(Recording.meeting_id == mid))
+        assert rec is not None and rec.original_path
+        rec.original_path = None  # simulate failed assembly
+        s.commit()
+    audio_dir = config.audio_dir / mid
+    assert audio_dir.is_dir()
+
+    svc.trash_meeting(mid)
+    out = svc.permanently_delete_meeting(mid)
+
+    assert out["deleted"] is True
+    assert out["audio_removed"] is True
+    assert not audio_dir.exists()
