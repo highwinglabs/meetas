@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ from sqlalchemy import select
 
 from core.config import Config, get_config
 from core.logging_setup import get_logger
-from core.store.db import get_engine, session_scope
+from core.store.db import db_quiet_barrier, get_engine, session_scope
 from core.store.models import BackupRecord, new_id, utcnow
 
 log = get_logger("ma.backup")
@@ -324,16 +325,25 @@ def restore_backup(cfg: Config, backup_id: str, confirm: bool = False,
         # 2) Pre-restore safety snapshot (never lose current data).
         safety = create_backup(cfg, kind="db",
                                note=f"pre-restore safety for {backup_id[:8]}")
-        # 3) Release pooled connections, then swap the temp copy in atomically.
-        try:
-            get_engine().dispose()
-        except RuntimeError:
-            pass
-        os.replace(src_tmp, cfg.db_path)
-        try:
-            cfg.db_path.chmod(0o600)
-        except OSError:
-            pass
+        # 3) Swap the live DB file while no application session can touch it.
+        #    a) Quiet barrier: block new session_scope() entries and wait
+        #       (bounded) until in-flight sessions have finished, so the swap
+        #       runs with zero active application sessions and no new one can
+        #       open the old file mid-swap.
+        #    b) Pool drain: close every pooled connection -- including idle
+        #       survivors of an earlier dispose().  A pre-swap connection left
+        #       open would later checkpoint/unlink the sidecar files *by path*
+        #       on close and could destroy the NEW database's live WAL.
+        #    c) Checkpoint + exclusive lock: apply all committed WAL frames to
+        #       the old main file, then take an exclusive lock (defence in
+        #       depth against non-app connections) and verify under the lock
+        #       that the WAL is empty.
+        #    d) Remove the old WAL sidecars and swap atomically.  A consistent
+        #       snapshot never needs them; left next to the new file, SQLite
+        #       would replay the stale frames onto it (same page size; the WAL
+        #       salts are only verified inside the WAL itself).
+        with db_quiet_barrier().quiet(timeout=60.0):
+            _swap_db_file(cfg, src_tmp, safety["path"])
     finally:
         try:
             src_tmp.unlink(missing_ok=True)
@@ -343,3 +353,84 @@ def restore_backup(cfg: Config, backup_id: str, confirm: bool = False,
                 path, safety["path"])
     return {**plan, "applied": True, "safety_backup": safety["path"],
             "note": "Restore abgeschlossen. Ein vorheriger Sicherheits-Snapshot wurde erstellt."}
+
+
+def _swap_db_file(cfg: Config, src_tmp: Path, safety_path: str) -> None:
+    """Atomically replace the live DB file (called under the quiet barrier).
+
+    Must be called while the quiet barrier is held: no application session is
+    in flight and none can start, so after the pool drain below the only
+    connections that could still exist are non-app ones (e.g. a DBA's
+    sqlite3 CLI), which the exclusive lock bounds.
+    """
+    # b) Drain the engine pool.  While the barrier is held, no session can be
+    #    checked out; each dispose() closes idle survivors from the previous
+    #    round, and the bounded loop guards against non-session usage.
+    try:
+        engine = get_engine()
+    except RuntimeError:
+        engine = None
+    deadline = time.monotonic() + 30.0
+    while True:
+        if engine is not None:
+            try:
+                engine.dispose()
+            except RuntimeError:
+                pass
+        if engine is None or engine.pool.checkedout() == 0:
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError(
+                "Restore abgebrochen: offene Datenbankverbindungen konnten "
+                "nicht innerhalb von 30 s geschlossen werden.")
+        time.sleep(0.05)
+
+    # c) + d) Checkpoint, exclusive lock, sidecar removal, atomic swap.
+    lock_conn = sqlite3.connect(str(cfg.db_path), timeout=30.0,
+                                isolation_level=None)
+    try:
+        clean = False
+        for _attempt in range(5):
+            # Apply all committed WAL frames to the main file.  A no-op with
+            # an error-free result on a fresh (non-WAL) database file.
+            if cfg.db_path.exists() and cfg.db_path.stat().st_size > 0:
+                lock_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            # Under the exclusive lock no writer (app or external) can add
+            # frames.  If one slipped in between checkpoint and lock, the WAL
+            # is non-empty again -- release and retry.
+            lock_conn.execute("BEGIN EXCLUSIVE")
+            sidecar = cfg.db_path.parent / (cfg.db_path.name + "-wal")
+            wal_size = sidecar.stat().st_size if sidecar.exists() else 0
+            if wal_size == 0:
+                clean = True
+                break
+            lock_conn.execute("ROLLBACK")
+        if not clean:
+            raise RuntimeError(
+                "Restore abgebrochen: WAL konnte nicht geleert werden "
+                "(andere Verbindung schreibt gerade). Bitte erneut versuchen.")
+        for suffix in ("-wal", "-shm"):
+            side = cfg.db_path.parent / (cfg.db_path.name + suffix)
+            try:
+                side.unlink()
+            except OSError:
+                pass
+        os.replace(src_tmp, cfg.db_path)
+        try:
+            cfg.db_path.chmod(0o600)
+        except OSError:
+            pass
+        lock_conn.execute("ROLLBACK")
+    finally:
+        try:
+            lock_conn.close()
+        except sqlite3.Error:
+            pass
+    # 4) Verify the swapped-in file BEFORE the barrier is released, so the
+    #    application never serves a corrupted DB from the swap.
+    restored = _integrity(cfg.db_path)
+    if restored != "ok":
+        raise RuntimeError(
+            f"Restore fehlgeschlagen: Datenbank nach dem Swap beschädigt "
+            f"(integrity_check={restored}). Vorheriger Zustand sicher unter: "
+            f"{safety_path}")

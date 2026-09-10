@@ -10,6 +10,8 @@ import re
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -76,19 +78,96 @@ def get_session_factory() -> sessionmaker:
     return _session_factory
 
 
+class _DBQuietBarrier:
+    """Quiet-period barrier for live DB file swaps (backup restore).
+
+    ``session_scope()`` registers every unit of work.  ``quiet()`` blocks new
+    sessions from starting and waits (bounded) until all in-flight sessions
+    have finished, so the caller can swap the database file while zero
+    application sessions are active.  Sessions are never serialised against
+    each other (WAL concurrency is preserved); the barrier only creates a
+    brief quiet window for the swap itself.
+    """
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._active = 0
+        self._quiet = False
+        self._quiet_owner: int | None = None
+
+    @contextmanager
+    def session(self):
+        me = threading.get_ident()
+        with self._cond:
+            self._active += 1
+            while self._quiet and self._quiet_owner != me:
+                if not self._cond.wait(timeout=60.0):
+                    self._active -= 1
+                    raise TimeoutError(
+                        "Datenbankzugriff warte auf laufende Wartung (Restore); "
+                        "Zeitüberschreitung.")
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._active -= 1
+                self._cond.notify_all()
+
+    @contextmanager
+    def quiet(self, timeout: float = 60.0):
+        with self._cond:
+            # Checked under the lock: two concurrent restores must not both
+            # enter the swap (the second one fails with a clear error).
+            if self._quiet:
+                raise RuntimeError("Ein Datenbank-Swap läuft bereits.")
+            self._quiet = True
+            self._quiet_owner = threading.get_ident()
+            deadline = time.monotonic() + timeout
+            while self._active > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._quiet = False
+                    self._quiet_owner = None
+                    self._cond.notify_all()
+                    raise TimeoutError(
+                        "Restore abgebrochen: offene Datenbank-Sitzungen konnten "
+                        f"nicht innerhalb von {timeout:.0f} s beendet werden.")
+                self._cond.wait(timeout=min(0.1, remaining))
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._quiet = False
+                self._quiet_owner = None
+                self._cond.notify_all()
+
+
+_db_barrier = _DBQuietBarrier()
+
+
+def db_quiet_barrier() -> _DBQuietBarrier:
+    """Access to the quiet-period barrier (used by the backup restore)."""
+    return _db_barrier
+
+
 @contextmanager
 def session_scope():
-    """Short-lived unit-of-work. Commits on success, rolls back on error."""
-    factory = get_session_factory()
-    session: Session = factory()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+    """Short-lived unit-of-work. Commits on success, rolls back on error.
+
+    Registers with the quiet barrier so a backup restore can swap the DB
+    file only while no session is in flight (and none can start).
+    """
+    with _db_barrier.session():
+        factory = get_session_factory()
+        session: Session = factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
 
 # Tables created by the *initial* migration (revision 1369a9a766ec). Used to

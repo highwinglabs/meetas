@@ -175,3 +175,49 @@ def test_restore_oldest_survives_prune(make_service, config):
     # live DB rolled back to A's snapshot (only meeting A)
     with session_scope() as s:
         assert s.query(Meeting).count() == 1
+
+
+def test_restore_with_stale_wal_does_not_corrupt(make_service, config):
+    """F1: a committed WAL frame kept alive by an open connection must not be
+    replayed onto the restored database file (stale sidecar hazard)."""
+    import sqlite3
+
+    from core.store.db import get_engine
+
+    svc = make_service()
+    m1 = svc.start_meeting(title="A", source="mic")
+    svc._sessions[m1].wait_done(timeout=10)
+    svc.stop(m1)
+    b = svc.create_backup(kind="db")  # snapshot: only meeting A
+
+    # Newer live state (meeting B) that must NOT survive the restore.
+    m2 = svc.start_meeting(title="B", source="mic")
+    svc._sessions[m2].wait_done(timeout=10)
+    svc.stop(m2)
+    with session_scope() as s:
+        assert s.query(Meeting).count() == 2
+
+    # An external connection (e.g. another tool) holds a committed,
+    # uncheckpointed WAL frame.  If the old sidecar files stayed next to the
+    # swapped-in snapshot, SQLite would replay this frame onto it.
+    side = sqlite3.connect(str(config.db_path), timeout=5.0)
+    side.execute("UPDATE meeting SET lang = 'zz'")
+    side.commit()
+    wal = config.db_path.parent / (config.db_path.name + "-wal")
+    assert wal.exists()
+    try:
+        out = svc.restore_backup(b["id"], confirm=True)
+        assert out["applied"] is True
+        # While the external connection is still open, the live DB must be
+        # exactly the snapshot: no replayed frame.
+        with session_scope() as s:
+            rows = {m.title: m.lang for m in s.query(Meeting).all()}
+        assert rows == {"A": None}
+    finally:
+        side.close()
+    # After the external connection closed and the pool was recycled, the
+    # restored DB must still be intact and usable.
+    get_engine().dispose()
+    with session_scope() as s:
+        rows = {m.title: m.lang for m in s.query(Meeting).all()}
+    assert rows == {"A": None}
