@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo.svg" alt="meetas" width="340"/>
+</p>
+
 # meetas
 
 **Your meetings stay on your machine.** 🎙️ `meetas` records meetings from your

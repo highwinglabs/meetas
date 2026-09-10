@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 252 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9db8ff"/>
+      <stop offset="1" stop-color="#7da2ff"/>
+    </linearGradient>
+  </defs>
+  <!-- icon (same mark as favicon.svg) -->
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="url(#bg)"/>
+  <path fill="#0e1116" d="M 22 14 H 42 A 9 9 0 0 1 51 23 V 31 A 9 9 0 0 1 42 40 H 27 L 18 51 L 22 40 A 9 9 0 0 1 13 31 V 23 A 9 9 0 0 1 22 14 Z"/>
+  <rect x="21.5" y="21.5" width="4.5" height="11" rx="2.25" fill="#f5f8ff"/>
+  <rect x="29.5" y="18" width="4.5" height="18" rx="2.25" fill="#f5f8ff"/>
+  <rect x="37.5" y="23" width="4.5" height="8" rx="2.25" fill="#f5f8ff"/>
+  <!-- wordmark -->
+  <text x="78" y="44" font-family="Inter, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="36" font-weight="600" letter-spacing="-0.5" fill="currentColor">meetas</text>
+</svg>

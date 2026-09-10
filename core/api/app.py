@@ -54,9 +54,11 @@ def _resolve_ui_dist(explicit: str | os.PathLike | None = None) -> Path | None:
 
 
 def _mount_ui(app: FastAPI, dist: Path) -> None:
-    """Serve the built React SPA on loopback. Only `/`, `/index.html` and the
-    `/assets/*` mount are added -- all REST routes are registered first and are
-    therefore never shadowed. The UI is just a same-origin client of the API."""
+    """Serve the built React SPA on loopback. Only `/`, `/index.html`, the
+    fixed favicon/touch-icon paths and the `/assets/*` mount are added -- all
+    REST routes are registered first and are therefore never shadowed. The UI
+    is just a same-origin client of the API. Deliberately no catch-all: REST
+    routes can never be shadowed by a static file of the same name."""
     index = dist / "index.html"
 
     @app.get("/", include_in_schema=False)
@@ -66,6 +68,21 @@ def _mount_ui(app: FastAPI, dist: Path) -> None:
     @app.get("/index.html", include_in_schema=False)
     def _index():
         return FileResponse(index)
+
+    # Favicon / touch icons live at the dist root (copied there by the build
+    # from ui/public/). Register each explicitly -- browsers request several
+    # variants, so each is served with a long cache header.
+    for name, media_type in (("favicon.svg", "image/svg+xml"),
+                             ("favicon-16.png", "image/png"),
+                             ("favicon-32.png", "image/png"),
+                             ("apple-touch-icon.png", "image/png"),
+                             ("apple-touch-icon.svg", "image/svg+xml")):
+        icon_path = dist / name
+        if icon_path.is_file():
+            def _icon(file_path: Path = icon_path, content_type: str = media_type):
+                return FileResponse(file_path, media_type=content_type,
+                                    headers={"Cache-Control": "public, max-age=31536000"})
+            app.get(f"/{name}", include_in_schema=False)(_icon)
 
     assets = dist / "assets"
     if assets.is_dir():
