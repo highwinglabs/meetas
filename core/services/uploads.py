@@ -391,6 +391,22 @@ class UploadsMixin:
                     raise ValueError("Der Upload ist noch nicht vollständig.")
                 path = self._upload_temp_path(row)
                 if not path.is_file() or path.stat().st_size != row.total_size:
+                    # A crash can leave the session 'uploading' after the import
+                    # already committed the meeting/file and the temp file was
+                    # unlinked (the process died before the status update).
+                    # Detect the existing object and finish the bookkeeping
+                    # instead of failing forever.
+                    with session_scope() as check:
+                        already_imported = (
+                            check.get(Meeting, upload_id) is not None
+                            or check.get(ProjectFile, upload_id) is not None)
+                    if already_imported:
+                        with session_scope() as done:
+                            row2 = done.get(UploadSession, upload_id)
+                            row2.status = "completed"
+                            row2.error = None
+                            done.commit()
+                            return self._upload_payload(row2)
                     raise ValueError("Die temporäre Uploaddatei ist unvollständig.")
                 try:
                     stored_settings = json.loads(row.settings_json or "{}")
