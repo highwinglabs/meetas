@@ -141,15 +141,41 @@ class WhisperCppEngine(ASREngine):
         self._download_model()
         self._load_model(local_files_only=True)
 
-    def _download_model(self) -> None:
+    def download_with_progress(self, on_progress=None, confirmed: bool = False) -> None:
+        """Explicit download that honours the confirmation gate and reports
+        ``(downloaded_bytes, total_bytes)`` progress to the UI. Used by the
+        background download service, exactly like the faster-whisper path.
+        """
+        if self.is_model_ready():
+            return
+        if self.model_name not in SUPPORTED_MODELS:
+            raise ASRError(
+                f"Das Modell '{self.model_name}' ist für whisper-cpp nicht "
+                f"verfügbar (unterstützt: {', '.join(SUPPORTED_MODELS)}).")
+        require_network_action(
+            f"download ASR model '{self.model_name}' (whisper.cpp/ggml)",
+            self.config, confirmed=confirmed)
+        self._download_model(on_progress=on_progress)
+
+    def _download_model(self, on_progress=None) -> None:
         from huggingface_hub import snapshot_download
         self.download_root.mkdir(parents=True, exist_ok=True)
         log.info("downloading whisper-cpp model=%s repo=%s", self.model_name, HF_REPO_ID)
-        snapshot_download(
-            repo_id=HF_REPO_ID,
-            cache_dir=str(self.download_root),
-            allow_patterns=[f"ggml-{self.model_name}.bin"],
-        )
+        from core.providers.faster_whisper import _progress_tqdm_factory
+        try:
+            snapshot_download(
+                repo_id=HF_REPO_ID,
+                cache_dir=str(self.download_root),
+                allow_patterns=[f"ggml-{self.model_name}.bin"],
+                tqdm_class=_progress_tqdm_factory(on_progress),
+            )
+        except TypeError:
+            # huggingface_hub too old for tqdm_class: no progress, same result.
+            snapshot_download(
+                repo_id=HF_REPO_ID,
+                cache_dir=str(self.download_root),
+                allow_patterns=[f"ggml-{self.model_name}.bin"],
+            )
         # The HF cache stores files under models--<repo>/snapshots/<rev>/ as
         # (relative) symlinks into the blobs dir. Link the real file into the
         # canonical flat location without breaking the layout.
@@ -276,8 +302,13 @@ class WhisperCppEngine(ASREngine):
         use_callback = False
         if on_segment is not None:
             import inspect
-            use_callback = "new_segment_callback" in inspect.signature(
-                model.transcribe).parameters
+            try:
+                use_callback = "new_segment_callback" in inspect.signature(
+                    model.transcribe).parameters
+            except (TypeError, ValueError):
+                # Binding without an inspectable signature (e.g. native
+                # method): stay on the batch fallback, never crash.
+                use_callback = False
 
             def _on_new_segment(seg) -> None:
                 try:

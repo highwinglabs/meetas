@@ -8,6 +8,7 @@ rest of the system runs without it installed.
 from __future__ import annotations
 
 import ctypes
+import glob
 import os
 import threading
 from pathlib import Path
@@ -92,7 +93,9 @@ def _preload_rocm_runtime() -> None:
     them (e.g. via ldconfig or LD_LIBRARY_PATH) this is a no-op.
     """
     lib_dirs = [d for d in os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep) if d]
-    lib_dirs += ["/opt/rocm-7.2.0/lib", "/opt/rocm/lib"]
+    # Versioned ROCm installs live under /opt/rocm-<ver>/lib; /opt/rocm is
+    # the distro packaging symlink. No hardcoded version.
+    lib_dirs += sorted(glob.glob("/opt/rocm-*/lib")) + ["/opt/rocm/lib"]
     for name in ("libamdhip64.so.7", "libhsa-runtime64.so.1", "libamd_comgr.so.3",
                  "libhipblas.so.3", "libhiprand.so.1", "librocrand.so.1"):
         for d in lib_dirs:

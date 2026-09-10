@@ -200,13 +200,23 @@ class MeetingService(
             # the UI exposes the effective engine so this is never silent.
             requested = self.config.live_fallback_asr_model or "small"
         base = self._asr_engine(requested)
-        if isinstance(base, FasterWhisperEngine):
+        if not isinstance(base, FasterWhisperEngine):
+            # The resolved batch engine (e.g. whisper-cpp) has no in-memory
+            # window transcribe. Instead of silently disabling the live
+            # display, fall back to a faster-whisper engine for live; the
+            # effective engine stays visible in the status (as with the
+            # Parakeet fallback) and readiness is still file-gated.
+            base = FasterWhisperEngine(model_name=requested,
+                                       compute_type=self.config.asr_compute_type,
+                                       device=self.config.asr_device,
+                                       config=self.config)
+            label = f"faster-whisper-live-fallback:{requested}"
+        else:
             label = "faster-whisper-live"
             if (model_name or self.config.live_asr_model).lower().startswith("parakeet"):
                 label = f"faster-whisper-live-fallback:{requested}"
-            return FasterWhisperLiveEngine(base, language=self.config.asr_language,
-                                           display_name=label)
-        return None
+        return FasterWhisperLiveEngine(base, language=self.config.asr_language,
+                                       display_name=label)
 
     def _normalise_meeting_settings(self, settings: dict | None) -> dict:
         """Keep only user-facing, JSON-safe per-meeting overrides."""

@@ -40,10 +40,17 @@ ASR_SPECS = (
 )
 
 
-def _whisper_ready(config: Config, model_id: str) -> bool:
+def _asr_engine_name(config: Config) -> str | None:
+    """Effective ASR engine name, resolved once per catalog request."""
     try:
         from core.providers.manager import ProviderManager
-        engine_name = ProviderManager(config).engine_name()
+        return ProviderManager(config).engine_name()
+    except Exception:
+        return None
+
+
+def _whisper_ready(config: Config, model_id: str, engine_name: str | None) -> bool:
+    try:
         if engine_name == "whisper-cpp":
             from core.providers.whisper_cpp import WhisperCppEngine
             return WhisperCppEngine(model_name=model_id, config=config).is_model_ready()
@@ -174,9 +181,18 @@ def _format_size(value: object) -> str:
 
 def list_catalog(config: Config) -> list[dict]:
     out: list[ModelSpec] = []
+    engine_name = _asr_engine_name(config)
     for spec in ASR_SPECS:
-        ready = _parakeet_ready(config, spec.id) if spec.id.startswith("parakeet") else _whisper_ready(config, spec.id)
-        out.append(ModelSpec(**{**asdict(spec), "installed": ready}))
+        if spec.id.startswith("parakeet"):
+            ready = _parakeet_ready(config, spec.id)
+            runtime = spec.runtime
+        else:
+            ready = _whisper_ready(config, spec.id, engine_name)
+            # The label must reflect the engine that actually runs the model,
+            # otherwise the UI advertises faster-whisper while whisper-cpp
+            # (ggml weights, different download) is active.
+            runtime = "whisper-cpp (ggml)" if engine_name == "whisper-cpp" else spec.runtime
+        out.append(ModelSpec(**{**asdict(spec), "installed": ready, "runtime": runtime}))
     out.extend(_llm_models(config))
     out.append(ModelSpec("numpy", "Lokaler Basis-Diarizer", "diarization", "Sprecher",
                          "ohne Modell", "CPU", "", installed=True,

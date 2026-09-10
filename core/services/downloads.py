@@ -11,7 +11,6 @@ from __future__ import annotations
 import threading
 import time
 from core.logging_setup import get_logger
-from core.providers.faster_whisper import FasterWhisperEngine
 
 log = get_logger("ma.service.downloads")
 
@@ -81,15 +80,18 @@ class DownloadsMixin:
             if kind == "asr":
                 self._update_download(phase="download")
                 engine = self._asr_engine(model)
-                if isinstance(engine, FasterWhisperEngine):
+                # Every engine with download_with_progress (faster-whisper,
+                # whisper-cpp) honours the confirmation gate and reports
+                # byte progress; anything else falls back to prepare_model.
+                if hasattr(engine, "download_with_progress"):
                     engine.download_with_progress(self._report_progress,
                                                   confirmed=confirm)
-                else:
-                    engine.prepare_model(allow_download=confirm)
                     if not engine.is_model_ready():
                         raise RuntimeError(
                             f"ASR-Modell '{model}' ist nach dem Download "
                             f"nicht vorhanden.")
+                else:
+                    engine.prepare_model(allow_download=confirm)
             else:
                 self._update_download(phase="pull")
                 self.install_ollama_model(model, confirm=confirm,

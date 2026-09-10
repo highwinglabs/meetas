@@ -337,7 +337,9 @@ hardware is present. Both paths can be forced explicitly. Details:
    `MA_ASR_ENGINE=whisper-cpp` to force it. Models are the ggml files from
    `ggerganov/whisper.cpp` (e.g. `ggml-small.bin`) and are downloaded through the
    normal model-confirmation gate. With this backend `auto`/`cuda` map to the
-   Vulkan GPU. Live transcription (Parakeet) is unaffected.
+   Vulkan GPU. Parakeet live transcription is unaffected; whisper models in
+   live mode fall back to faster-whisper (the live engine is always
+   faster-whisper-based, the effective one is shown in the status).
 
    On hybrid systems (iGPU + discrete GPU) whisper.cpp would default to the
    first Vulkan device — usually the slow iGPU. The app therefore identifies the

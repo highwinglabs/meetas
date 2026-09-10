@@ -261,6 +261,99 @@ def test_auto_engine_falls_back_to_faster_whisper(config, monkeypatch):
     assert mgr.engine_name() == "faster-whisper"
 
 
+def test_provider_manager_keeps_parakeet_routing(config, fake_pywhispercpp):
+    # A Parakeet model must never be routed to whisper-cpp, even when the
+    # batch engine (auto or forced) resolved to whisper-cpp: the ggml
+    # catalog has no Parakeet weights.
+    from core.providers.manager import ProviderManager
+    from core.providers.parakeet import ParakeetEngine
+    from core.providers.whisper_cpp import WhisperCppEngine
+    config.asr_engine = "whisper-cpp"
+    mgr = ProviderManager(config)
+    assert isinstance(mgr.engine("parakeet-tdt-0.6b-v3-int8"), ParakeetEngine)
+    # configured parakeet model, no explicit argument
+    config.asr_model = "parakeet-tdt-0.6b-v3-int8"
+    assert isinstance(mgr.engine(), ParakeetEngine)
+    # whisper models still route to whisper-cpp
+    assert isinstance(mgr.engine("small"), WhisperCppEngine)
+    # auto resolution (mocked) behaves the same
+    config.asr_engine = "auto"
+    mgr2 = ProviderManager(config)
+    mgr2._resolved_engine = "whisper-cpp"
+    assert isinstance(mgr2.engine("parakeet-tdt-0.6b-v3-int8"), ParakeetEngine)
+
+
+def test_live_engine_falls_back_to_faster_whisper(config, fake_pywhispercpp,
+                                                  make_service):
+    # With the whisper-cpp batch engine active, live must not be silently
+    # disabled: the live pipeline falls back to faster-whisper and says so.
+    from core.live.engine import FasterWhisperLiveEngine
+    config.asr_engine = "whisper-cpp"
+    svc = make_service()
+    live = svc._live_engine("small")
+    assert isinstance(live, FasterWhisperLiveEngine)
+    assert live.name == "faster-whisper-live-fallback:small"
+
+
+def test_live_engine_keeps_faster_whisper_directly(config, make_service):
+    from core.live.engine import FasterWhisperLiveEngine
+    config.asr_engine = "faster-whisper"
+    svc = make_service()
+    live = svc._live_engine("small")
+    assert isinstance(live, FasterWhisperLiveEngine)
+    assert live.name == "faster-whisper-live"
+
+
+def test_download_with_progress_requires_confirmation(config, fake_pywhispercpp):
+    # The download service path must honour downloads_require_confirmation
+    # (the old prepare_model route hard-coded confirmed=True).
+    from core.providers.whisper_cpp import WhisperCppEngine
+    from core.security.secrets import NetworkBlockedError
+    config.network_allowed = True
+    config.downloads_require_confirmation = True
+    eng = WhisperCppEngine(model_name="small", config=config)
+    with pytest.raises(NetworkBlockedError):
+        eng.download_with_progress(confirmed=False)
+
+
+def test_download_with_progress_downloads_and_reports(
+        config, fake_pywhispercpp, monkeypatch):
+    import types
+    from core.providers.whisper_cpp import WhisperCppEngine
+
+    def _fake_snapshot_download(repo_id, cache_dir, allow_patterns=None, **kwargs):
+        from pathlib import Path
+        snap = (Path(cache_dir) / "models--ggerganov--whisper.cpp"
+                / "snapshots" / "testrev")
+        snap.mkdir(parents=True, exist_ok=True)
+        (snap / (allow_patterns or ["ggml-small.bin"])[0]).write_bytes(b"fake")
+        if "tqdm_class" in kwargs:
+            bar = kwargs["tqdm_class"](total=100, desc="Reconstructing x", unit="B")
+            bar.update(100)
+            bar.close()
+
+    hf = types.ModuleType("huggingface_hub")
+    hf.snapshot_download = _fake_snapshot_download
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hf)
+
+    config.network_allowed = True
+    config.downloads_require_confirmation = True
+    eng = WhisperCppEngine(model_name="small", config=config)
+    progress: list[tuple[int, int]] = []
+    eng.download_with_progress(lambda n, t: progress.append((n, t)),
+                               confirmed=True)
+    assert eng.is_model_ready() is True
+    assert progress and progress[-1] == (100, 100)
+
+
+def test_prepare_model_requires_explicit_download(config, fake_pywhispercpp):
+    from core.providers.base import ModelNotReadyError
+    from core.providers.whisper_cpp import WhisperCppEngine
+    eng = WhisperCppEngine(model_name="small", config=config)
+    with pytest.raises(ModelNotReadyError):
+        eng.prepare_model(allow_download=False)
+
+
 def test_explicit_engine_selection_overrides_auto(config, fake_pywhispercpp):
     from core.providers.faster_whisper import FasterWhisperEngine
     from core.providers.manager import ProviderManager

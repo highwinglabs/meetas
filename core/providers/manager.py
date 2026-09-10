@@ -61,12 +61,15 @@ class ProviderManager:
         return cached
 
     def engine(self, model_name: str | None = None) -> ASREngine:
-        if self.engine_name() == "whisper-cpp":
-            return self._whisper_cpp(model_name or self.config.asr_model)
+        # Parakeet models are always routed by name, even when the batch
+        # engine resolved to whisper-cpp: the ggml catalog has no Parakeet
+        # weights, so switching engines must never break a Parakeet setup.
         if model_name is None and self.config.asr_model.lower().startswith("parakeet"):
             return self._parakeet(self.config.asr_model)
         if model_name and model_name.lower().startswith("parakeet"):
             return self._parakeet(model_name)
+        if self.engine_name() == "whisper-cpp":
+            return self._whisper_cpp(model_name or self.config.asr_model)
         if model_name and model_name != self.config.asr_model:
             return FasterWhisperEngine(model_name=model_name,
                                        compute_type=self.config.asr_compute_type,
