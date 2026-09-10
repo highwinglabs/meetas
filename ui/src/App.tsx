@@ -111,7 +111,7 @@ export default function App() {
       <aside className="sidebar">
         <button className="sidebar-toggle" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={t("nav.toggle")}>{sidebarCollapsed ? "☰" : "‹"}</button>
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">M</span>
+          <img className="brand-mark" src="/favicon.svg" alt="" aria-hidden="true" />
           <span className="brand-name">{t("app.brand")}</span>
         </div>
         <nav className="side-nav" aria-label={t("nav.primary")}>

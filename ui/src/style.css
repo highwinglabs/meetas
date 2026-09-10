@@ -249,12 +249,6 @@ summary::-webkit-details-marker { display: none; }
   height: 30px;
   flex-shrink: 0;
   border-radius: 9px;
-  display: grid;
-  place-items: center;
-  font-size: 15px;
-  font-weight: 750;
-  color: #0b1018;
-  background: linear-gradient(135deg, #8fadff, #5f7fd0);
 }
 
 .side-nav { display: flex; flex-direction: column; gap: 3px; }
