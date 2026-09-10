@@ -190,3 +190,116 @@ def test_transcribe_auto_when_no_per_meeting_language(config, make_service):
     svc.stop(mid)
     svc.transcribe(mid)
     assert engine.seen_languages[-1] is None
+
+
+# --- F5: start_transcription admission race ---------------------------------
+
+def _wait_job_terminal(mid: str, stage: str = "transcribe", timeout: float = 30.0):
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with session_scope() as s:
+            job = s.scalar(select(ProcessingJob).where(
+                ProcessingJob.meeting_id == mid,
+                ProcessingJob.stage == stage))
+        if job is not None and job.status in ("done", "failed", "cancelled"):
+            return job.status
+        time.sleep(0.05)
+    raise AssertionError(f"job {stage} for {mid[:8]} never reached a terminal state")
+
+
+def test_start_transcription_concurrent_calls_single_run(config, finalize_meeting):
+    """F5: concurrent start_transcription calls must schedule exactly one ASR
+    run (atomic slot claim) and produce exactly one 'pending' ack."""
+    import threading
+
+    svc, mid = finalize_meeting(title="Race")
+
+    submitted = []
+    sub_lock = threading.Lock()
+    real_submit = svc._pipeline_executor.submit
+
+    def counting_submit(fn, *args, **kwargs):
+        with sub_lock:
+            submitted.append(1)
+        return real_submit(fn, *args, **kwargs)
+
+    svc._pipeline_executor.submit = counting_submit
+
+    calls = []
+    call_lock = threading.Lock()
+    real_transcribe = svc.transcribe
+
+    def counting_transcribe(*a, **k):
+        with call_lock:
+            calls.append(1)
+        return real_transcribe(*a, **k)
+
+    svc.transcribe = counting_transcribe
+
+    n_threads = 8
+    barrier = threading.Barrier(n_threads)
+    acks = []
+    ack_lock = threading.Lock()
+
+    def worker():
+        barrier.wait()
+        ack = svc.start_transcription(mid)
+        with ack_lock:
+            acks.append(ack)
+
+    threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in range(n_threads):
+        threads[t].join(timeout=30)
+
+    assert len(submitted) == 1, f"expected exactly one scheduled run, got {len(submitted)}"
+    assert len(calls) == 1
+    assert len(acks) == n_threads
+    assert sum(1 for a in acks if a["status"] == "pending") == 1
+    assert all(a["status"] in ("pending", "running") for a in acks)
+    assert _wait_job_terminal(mid) == "done"
+
+
+def test_start_transcription_releases_slot_on_unknown_meeting(config, finalize_meeting):
+    """F5: a failed admission (unknown meeting) must release the in-memory
+    slot, otherwise that id could never be transcribed again."""
+    import pytest
+    from core.services._common import UnknownMeetingError
+
+    svc, _mid = finalize_meeting(title="Slot")
+    missing = "no-such-meeting-id"
+    with pytest.raises(UnknownMeetingError):
+        svc.start_transcription(missing)
+    assert missing not in svc._manual_transcriptions
+
+
+def test_start_transcription_submit_failure_fails_job_and_releases_slot(
+        config, finalize_meeting):
+    """F5: an executor submit failure must persist the failure and release the
+    slot; the meeting must be transcribable again afterwards."""
+    import pytest
+
+    svc, mid = finalize_meeting(title="SubmitFail")
+    real_submit = svc._pipeline_executor.submit
+
+    def boom(fn, *a, **k):
+        raise RuntimeError("executor down")
+
+    svc._pipeline_executor.submit = boom
+    with pytest.raises(RuntimeError):
+        svc.start_transcription(mid)
+    assert mid not in svc._manual_transcriptions
+    with session_scope() as s:
+        job = s.scalar(select(ProcessingJob).where(
+            ProcessingJob.meeting_id == mid,
+            ProcessingJob.stage == "transcribe"))
+        assert job is not None and job.status == "failed"
+        assert s.get(Meeting, mid).status == "failed"
+
+    # Retry works: slot was released and the job is retryable.
+    svc._pipeline_executor.submit = real_submit
+    ack = svc.start_transcription(mid)
+    assert ack["status"] == "pending"
+    assert _wait_job_terminal(mid) == "done"

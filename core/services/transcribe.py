@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import threading
+from sqlalchemy import select
 from core.jobs.queue import JobQueue
 from core.store.db import session_scope
 from core.transcribe.processor import TranscriptionProcessor
-from core.store.models import Meeting
+from core.store.models import Meeting, ProcessingJob
 from core.logging_setup import get_logger
 from core.services._common import UnknownMeetingError, friendly_job_error
 
@@ -51,51 +52,83 @@ class TranscriptionMixin:
                             model_name: str | None = None,
                             allow_download: bool = False) -> dict:
         """Queue a persistent transcription job without blocking the UI request."""
-        with session_scope() as s:
-            meeting = s.get(Meeting, meeting_id)
-            if meeting is None or meeting.deleted_at is not None:
-                raise UnknownMeetingError(meeting_id)
-            job = JobQueue.get_or_create(s, meeting_id, "transcribe")
-            if meeting_id in self._manual_transcriptions or job.status == "running":
-                return {"meeting_id": meeting_id, "status": "running", "job_id": job.id}
-            if job.status == "failed":
-                job.retries += 1
-            job.status = "pending"
-            job.error = None
-            # Keep an explicitly selected model/language with the meeting so
-            # crash recovery can retry the same request instead of silently
-            # falling back to a different global default.
-            persisted = self._decode_settings(meeting.settings_json)
-            if isinstance(model_name, str) and model_name.strip():
-                persisted["quality_asr_model"] = model_name.strip()[:256]
-            if language not in (None, "", "auto"):
-                persisted["language"] = language
-            meeting.settings_json = json.dumps(
-                self._normalise_meeting_settings(persisted), ensure_ascii=False)
-            # Show the deliberate run immediately while the worker waits for
-            # an executor slot.
-            meeting.status = "transcribing"
-            s.commit()
+        # Primary admission control: claim the in-memory slot atomically
+        # (check-and-add in one lock section) *before* any DB commit.  The
+        # admission decision therefore happens before the side-effecting job
+        # commit: a concurrent caller either sees the slot taken (and joins
+        # without writing) or claims it itself.  The slot is released again on
+        # every failure path below and by the worker's finally-block on
+        # completion.
         with self._pipeline_lock:
+            already_claimed = meeting_id in self._manual_transcriptions
+        if already_claimed:
+            with session_scope() as s:
+                job = s.scalar(select(ProcessingJob).where(
+                    ProcessingJob.meeting_id == meeting_id,
+                    ProcessingJob.stage == "transcribe"))
+            return {"meeting_id": meeting_id, "status": "running",
+                    "job_id": job.id if job is not None else None}
+        with self._pipeline_lock:
+            # Re-check under the lock: another caller may have claimed the
+            # slot between the fast-path check and now.
             if meeting_id in self._manual_transcriptions:
-                return {"meeting_id": meeting_id, "status": "running", "job_id": job.id}
+                return {"meeting_id": meeting_id, "status": "running",
+                        "job_id": None}
             self._manual_transcriptions.add(meeting_id)
         try:
-            self._pipeline_executor.submit(
-                self._gated(self._run_manual_transcription), meeting_id, language,
-                model_name, allow_download)
+            with session_scope() as s:
+                meeting = s.get(Meeting, meeting_id)
+                if meeting is None or meeting.deleted_at is not None:
+                    raise UnknownMeetingError(meeting_id)
+                job = JobQueue.get_or_create(s, meeting_id, "transcribe")
+                if job.status == "running":
+                    # An automatic pipeline already drives this stage; release
+                    # the manual slot and join it.
+                    with self._pipeline_lock:
+                        self._manual_transcriptions.discard(meeting_id)
+                    return {"meeting_id": meeting_id, "status": "running",
+                            "job_id": job.id}
+                if job.status == "failed":
+                    job.retries += 1
+                job.status = "pending"
+                job.error = None
+                # Keep an explicitly selected model/language with the meeting so
+                # crash recovery can retry the same request instead of silently
+                # falling back to a different global default.
+                persisted = self._decode_settings(meeting.settings_json)
+                if isinstance(model_name, str) and model_name.strip():
+                    persisted["quality_asr_model"] = model_name.strip()[:256]
+                if language not in (None, "", "auto"):
+                    persisted["language"] = language
+                meeting.settings_json = json.dumps(
+                    self._normalise_meeting_settings(persisted), ensure_ascii=False)
+                # Show the deliberate run immediately while the worker waits for
+                # an executor slot.
+                meeting.status = "transcribing"
+                s.commit()
+                job_id = job.id
+            try:
+                self._pipeline_executor.submit(
+                    self._gated(self._run_manual_transcription), meeting_id, language,
+                    model_name, allow_download)
+            except Exception:
+                with session_scope() as s:
+                    failed_job = JobQueue.get_or_create(s, meeting_id, "transcribe")
+                    JobQueue.mark_failed(
+                        s, failed_job, "Transkriptionsjob konnte nicht gestartet werden.")
+                    meeting = s.get(Meeting, meeting_id)
+                    if meeting is not None:
+                        meeting.status = "failed"
+                    s.commit()
+                raise
+            return {"meeting_id": meeting_id, "status": "pending", "job_id": job_id}
         except Exception:
+            # Any failure before the worker took over (unknown meeting, DB
+            # error, submit failure) must release the slot, otherwise the
+            # meeting could never be manually transcribed again.
             with self._pipeline_lock:
                 self._manual_transcriptions.discard(meeting_id)
-            with session_scope() as s:
-                failed_job = JobQueue.get_or_create(s, meeting_id, "transcribe")
-                JobQueue.mark_failed(s, failed_job, "Transkriptionsjob konnte nicht gestartet werden.")
-                meeting = s.get(Meeting, meeting_id)
-                if meeting is not None:
-                    meeting.status = "failed"
-                s.commit()
             raise
-        return {"meeting_id": meeting_id, "status": "pending", "job_id": job.id}
 
     def _run_manual_transcription(self, meeting_id: str, language: str | None,
                                   model_name: str | None, allow_download: bool) -> None:
