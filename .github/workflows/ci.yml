@@ -72,3 +72,15 @@ jobs:
       - name: Build
         working-directory: ui
         run: npm run build
+
+      # ui/dist is committed on purpose (zero-build install: the core serves
+      # the tracked bundle, the systemd unit has no build step).  Fail when the
+      # committed bundle is stale relative to ui/src so src/dist can never drift.
+      - name: Verify committed ui/dist is up to date
+        run: |
+          if [ -n "$(git ls-files --others --exclude-standard ui/dist)" ]; then
+            echo "::error::ui/dist contains new untracked build output -- rebuild and commit."
+            exit 1
+          fi
+          git diff --exit-code -- ui/dist \
+            || { echo "::error::ui/dist out of sync with ui/src -- run 'cd ui && npm run build' and commit the result."; exit 1; }
