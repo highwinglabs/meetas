@@ -375,6 +375,10 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
+        # A project-local .env may define MA_BASE_DIR itself, so it must be
+        # loaded *before* the base directory is resolved. The second call then
+        # only adds the base_dir/.env fallback when the cwd had no .env.
+        _load_dotenv(Path.cwd())
         base = default_base_dir()
         _load_dotenv(base)
         cfg = cls(base_dir=base)

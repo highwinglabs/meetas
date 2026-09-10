@@ -57,3 +57,24 @@ def test_env_file_in_cwd_is_loaded(tmp_path, monkeypatch):
     cfg = Config.load()
 
     assert cfg.port == 9444
+
+
+def test_env_file_can_set_base_dir(tmp_path, monkeypatch):
+    """Regression: MA_BASE_DIR in the project-local .env must take effect.
+
+    The base dir is resolved from the environment, so the cwd .env has to be
+    loaded before ``default_base_dir()`` runs.
+    """
+    monkeypatch.delenv("MA_BASE_DIR", raising=False)
+    monkeypatch.delenv("MA_PORT", raising=False)
+    target = tmp_path / "target_base"
+    target.mkdir()
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    (proj / ".env").write_text(f"MA_BASE_DIR={target}\nMA_PORT=9701\n")
+
+    cfg = Config.load()
+
+    assert cfg.base_dir == target
+    assert cfg.port == 9701
