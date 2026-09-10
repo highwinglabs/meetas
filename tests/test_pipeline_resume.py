@@ -82,3 +82,45 @@ def test_resume_skips_finished_meetings(finalize_meeting, config):
     assert svc.resume_pending_pipelines() == 0
     # And it was not scheduled: the inflight set is empty.
     assert svc._pipeline_inflight == set()
+
+
+def test_resume_recovers_analyzing_meeting(finalize_meeting, config):
+    """A crash during analysis (status 'analyzing', analyze job reset to
+    pending by crash recovery) must be resumed on startup, not left in a
+    perpetual 'analyzing' state."""
+    import json
+
+    svc, mid = finalize_meeting(asr_engine=None, title="AnalyzeCrash")
+    svc.config.auto_pipeline = True
+    svc.config.embeddings_enabled = False
+
+    # A usable transcript exists (mock ASR, deterministic).
+    svc.transcribe(mid, language="de")
+
+    # Simulate the crash state: recovery reset the running analyze job back to
+    # pending (retries bumped) and the meeting is stuck in 'analyzing'.
+    with session_scope() as s:
+        m = s.get(Meeting, mid)
+        m.status = "analyzing"
+        m.settings_json = json.dumps({"analysis_enabled": True})
+        job = s.scalar(select(ProcessingJob).where(
+            ProcessingJob.meeting_id == mid,
+            ProcessingJob.stage == "analyze"))
+        if job is None:
+            s.add(ProcessingJob(id=new_id(), meeting_id=mid, stage="analyze",
+                                status="pending", retries=1))
+        else:
+            job.status = "pending"
+            job.retries = 1
+        s.commit()
+
+    n = svc.resume_pending_pipelines()
+    assert n == 1
+
+    final = _wait_terminal(svc, mid)
+    assert final == "done"
+    with session_scope() as s:
+        job = s.scalar(select(ProcessingJob).where(
+            ProcessingJob.meeting_id == mid,
+            ProcessingJob.stage == "analyze"))
+    assert job is not None and job.status == "done"

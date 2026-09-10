@@ -300,12 +300,17 @@ class PipelineMixin:
             return 0
         with session_scope() as s:
             # Only unfinished jobs belonging to a meeting that is itself still
-            # in a processing state are crash-resumable.  A later-stage failure
-            # intentionally leaves a usable meeting as ``done``; it must wait
-            # for an explicit retry from the UI instead of being retried on
-            # every application start.  Retry caps are honoured here too.
+            # in a processing state are crash-resumable.  "analyzing" is an
+            # active state too: a crash mid-LLM-call leaves the meeting there
+            # with a (crash-recovered) pending analyze job, which must be
+            # driven again instead of showing a perpetual spinner.  A
+            # later-stage failure intentionally leaves a usable meeting as
+            # ``done``; it must wait for an explicit retry from the UI instead
+            # of being retried on every application start.  Retry caps and
+            # user-cancelled stages are honoured in the per-stage walk below.
             active_ids = set(s.scalars(select(Meeting.id).where(
-                Meeting.status.in_(["processing", "transcribing", "ready"]),
+                Meeting.status.in_(
+                    ["processing", "transcribing", "ready", "analyzing"]),
                 Meeting.deleted_at.is_(None))).all())
             jobs_by_meeting: dict[str, dict[str, ProcessingJob]] = {}
             for job in s.scalars(select(ProcessingJob).where(
