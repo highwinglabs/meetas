@@ -12,7 +12,8 @@ import httpx
 import pytest
 
 from core.llm import (
-    LLMError, LLMUnavailableError, MockLLM, OpenAICompatibleLLM, ServerBusyError,
+    LLMContextOverflowError, LLMError, LLMUnavailableError, MockLLM,
+    OpenAICompatibleLLM, ServerBusyError,
 )
 
 BASE_URL = "http://testserver/v1"
@@ -171,10 +172,35 @@ def test_http_500_is_unavailable(config):
     assert "500" in str(exc.value)
 
 
+def test_http_400_context_overflow_raises_overflow_error(config):
+    body = {"error": {"code": 400, "type": "exceed_context_size_error",
+                     "message": ("request (143936 tokens) exceeds the "
+                                 "available context size (131072 tokens)"),
+                     "n_prompt_tokens": 143936, "n_ctx": 131072}}
+    eng, _ = _engine(config, lambda r: httpx.Response(400, json=body))
+    with pytest.raises(LLMContextOverflowError) as exc:
+        eng.complete("p")
+    assert exc.value.prompt_tokens == 143936
+    assert exc.value.ctx_tokens == 131072
+    assert "Kontextfenster zu klein" in str(exc.value)
+
+
+def test_http_400_context_overflow_missing_counts_not_overflow(config):
+    # Same error type but without usable token counts -> plain LLMError
+    # (the processor cannot shrink without the reported numbers).
+    body = {"error": {"type": "exceed_context_size_error",
+                     "message": "request exceeds the available context size"}}
+    eng, _ = _engine(config, lambda r: httpx.Response(400, json=body))
+    with pytest.raises(LLMError) as exc:
+        eng.complete("p")
+    assert not isinstance(exc.value, LLMContextOverflowError)
+
+
 def test_http_400_is_llm_error(config):
     eng, _ = _engine(config, lambda r: httpx.Response(400, text="bad request"))
-    with pytest.raises(LLMError):
+    with pytest.raises(LLMError) as exc:
         eng.complete("p")
+    assert not isinstance(exc.value, LLMContextOverflowError)
 
 
 def test_bad_json_is_llm_error(config):

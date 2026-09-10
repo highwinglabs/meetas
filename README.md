@@ -198,6 +198,8 @@ The most relevant settings (full list in [`.env.example`](./.env.example)):
 | `MA_OLLAMA_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama's OpenAI-compatible endpoint |
 | `MA_LLM_MODEL` | `qwen3.8-27b-q4kxl` | Must match a model id your server reports under `/v1/models` |
 | `MA_LLM_MOCK` | `false` | Use the deterministic mock LLM (no server call) |
+| `MA_LLM_MAX_PROMPT_TOKENS` | `32000` | Hard prompt-size cap for analyses (keeps prefill feasible locally) |
+| `MA_LLM_TIMEOUT` | `1800` | Seconds to wait for one LLM answer (local 27B models need minutes) |
 | `MA_ASR_MODEL` | `small` | Final/batch ASR model |
 | `MA_LIVE_ASR_MODEL` | `parakeet-tdt-0.6b-v3-int8` | Live ASR model (opt-in) |
 | `MA_ASR_LANGUAGE` | auto | Force the transcription language (empty = auto-detect) |
@@ -305,6 +307,8 @@ No credentials are required. All settings:
 | `MA_OLLAMA_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama OpenAI-compatible endpoint |
 | `MA_LLM_MODEL` | `qwen3.8-27b-q4kxl` | Must match a model id your server reports under `/v1/models` |
 | `MA_LLM_MOCK` | `false` | Use the deterministic mock LLM (no server call) |
+| `MA_LLM_MAX_PROMPT_TOKENS` | `32000` | Hard prompt-size cap for analyses (keeps prefill feasible locally) |
+| `MA_LLM_TIMEOUT` | `1800` | Seconds to wait for one LLM answer (local 27B models need minutes) |
 | `MA_EMBEDDINGS` / `MA_RAG` | `true` / `true` | Local relevance index / grounded RAG |
 | `MA_AUTO_PIPELINE` / `MA_AUTO_ANALYZE` | `false` / `false` | Auto-processing after stop |
 

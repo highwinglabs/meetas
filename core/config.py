@@ -230,7 +230,16 @@ class Config:
     # emit *truncated* (invalid) JSON. 8192 leaves ample headroom while staying
     # comfortably inside a typical local model's context window.
     llm_max_tokens: int = 8192
-    llm_timeout_s: float = 300.0  # inference can be slow on CPU
+    # Hard cap for the *prompt* (transcript + scaffolding) of the analysis
+    # request, in tokens. A prompt that fills the whole context window may be
+    # legal but impractical locally: prefilling e.g. 95k tokens at 200-600
+    # tokens/s alone takes several minutes and can exceed llm_timeout_s. 32k
+    # keeps a large analysis feasible on a 27B-class local model while still
+    # carrying hours of transcript; raise for smaller/faster models.
+    llm_max_prompt_tokens: int = 32000
+    # Local 27B-class models need minutes for a big prefill plus the JSON
+    # generation; the client must not time out after the first 5 minutes.
+    llm_timeout_s: float = 1800.0
     llm_max_busy_retries: int = 10  # how often to wait/retry while the server is busy
     llm_busy_wait_s: float = 3.0  # pause between busy retries
     # Overall wall-clock budget (requests + waits) for the busy-retry loop.
@@ -422,6 +431,8 @@ class Config:
         cfg.llm_mock = _env_bool("LLM_MOCK", cfg.llm_mock)
         cfg.llm_temperature = _env_float("LLM_TEMPERATURE", cfg.llm_temperature)
         cfg.llm_max_tokens = _env_int("LLM_MAX_TOKENS", cfg.llm_max_tokens)
+        cfg.llm_max_prompt_tokens = _env_int(
+            "LLM_MAX_PROMPT_TOKENS", cfg.llm_max_prompt_tokens)
         cfg.llm_timeout_s = _env_float("LLM_TIMEOUT", cfg.llm_timeout_s)
         cfg.llm_max_busy_retries = _env_int("LLM_MAX_BUSY_RETRIES", cfg.llm_max_busy_retries)
         cfg.llm_busy_wait_s = _env_float("LLM_BUSY_WAIT", cfg.llm_busy_wait_s)
@@ -481,6 +492,7 @@ class Config:
         bounded_int("backup_interval_hours", 1, 24 * 365)
         bounded_int("backup_retention", 1, 10_000)
         bounded_int("llm_max_tokens", 0, 1_000_000)
+        bounded_int("llm_max_prompt_tokens", 0, 1_000_000)
         bounded_int("llm_max_busy_retries", 0, 100)
         bounded_int("pipeline_max_workers", 1, 4)
         bounded_int("pipeline_max_retries", 0, 20)

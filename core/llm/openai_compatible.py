@@ -11,9 +11,10 @@ The ``http_client`` can be injected (tests pass an ``httpx.Client`` backed by
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -23,14 +24,46 @@ from core.logging_setup import get_logger
 from core.security.secrets import require_endpoint_allowed
 
 from core.llm.base import (
-    LLMCancelledError, LLMEngine, LLMError, LLMResult, LLMUnavailableError,
-    ServerBusyError,
+    LLMCancelledError, LLMContextOverflowError, LLMEngine, LLMError, LLMResult,
+    LLMUnavailableError, ServerBusyError,
 )
 
 log = get_logger("ma.llm")
 
 # llama.cpp reports a busy slot with 503 (some builds/versions use 429).
 _BUSY_STATUS = (429, 503)
+
+
+def _parse_context_overflow(body: str) -> Optional[Tuple[int, int]]:
+    """Detect a llama.cpp-style context-overflow rejection (HTTP 400).
+
+    Returns ``(n_prompt_tokens, n_ctx)`` for bodies shaped like
+    ``{"error": {"type": "exceed_context_size_error",
+    "message": "request (N tokens) exceeds the available context size ...",
+    "n_prompt_tokens": N, "n_ctx": M}}``; ``None`` for anything else, so
+    other 4xx errors keep their usual ``LLMError`` handling.
+    """
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    err = data.get("error")
+    if not isinstance(err, dict):
+        return None
+    err_type = str(err.get("type") or "").lower()
+    message = str(err.get("message") or "").lower()
+    if "exceed_context_size" not in err_type \
+            and "exceeds the available context size" not in message:
+        return None
+    prompt_tokens = err.get("n_prompt_tokens", data.get("n_prompt_tokens"))
+    ctx_tokens = err.get("n_ctx", data.get("n_ctx"))
+    if not isinstance(prompt_tokens, int) or isinstance(prompt_tokens, bool) \
+            or prompt_tokens <= 0:
+        return None
+    if not isinstance(ctx_tokens, int) or isinstance(ctx_tokens, bool) \
+            or ctx_tokens <= 0:
+        return None
+    return prompt_tokens, ctx_tokens
 
 
 class OpenAICompatibleLLM(LLMEngine):
@@ -265,6 +298,13 @@ class OpenAICompatibleLLM(LLMEngine):
                     f"LLM-Server-Fehler HTTP {resp.status_code}: {resp.text[:300]}"
                 )
             if resp.status_code >= 400:
+                overflow = _parse_context_overflow(resp.text)
+                if overflow is not None:
+                    raise LLMContextOverflowError(
+                        f"LLM-Kontextfenster zu klein: die Anfrage ben\u00f6tigt "
+                        f"{overflow[0]:,} Tokens, das Modell bietet "
+                        f"{overflow[1]:,}. [{self._display_endpoint()}]",
+                        prompt_tokens=overflow[0], ctx_tokens=overflow[1])
                 raise LLMError(f"LLM-Anfrage abgelehnt HTTP {resp.status_code}: {resp.text[:300]}")
             try:
                 data = resp.json()

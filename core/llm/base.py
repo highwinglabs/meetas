@@ -37,6 +37,20 @@ class LLMUnavailableError(LLMError):
     """The LLM server is unreachable or returned a hard error."""
 
 
+class LLMContextOverflowError(LLMError):
+    """The request exceeded the model's context window (server HTTP 400).
+
+    Carries the server-reported token counts (``prompt_tokens`` / ``ctx_tokens``)
+    so the caller can shrink the prompt by the reported ratio and retry.
+    """
+
+    def __init__(self, message: str, prompt_tokens: int = 0,
+                 ctx_tokens: int = 0) -> None:
+        super().__init__(message)
+        self.prompt_tokens = int(prompt_tokens or 0)
+        self.ctx_tokens = int(ctx_tokens or 0)
+
+
 class LLMCancelledError(LLMError):
     """The user stopped the analysis while it was running."""
 

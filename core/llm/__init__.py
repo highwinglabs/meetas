@@ -6,8 +6,8 @@ for the LLM: it is a local endpoint. Real analysis only runs when the user
 triggers it; tests/dev use ``MockLLM``.
 """
 from core.llm.base import (
-    LLMCancelledError, LLMEngine, LLMError, LLMResult, LLMUnavailableError,
-    ServerBusyError,
+    LLMCancelledError, LLMContextOverflowError, LLMEngine, LLMError, LLMResult,
+    LLMUnavailableError, ServerBusyError,
 )
 from core.llm.manager import LLMProviderManager
 from core.llm.mock import MockLLM
@@ -15,5 +15,6 @@ from core.llm.openai_compatible import OpenAICompatibleLLM
 
 __all__ = [
     "LLMEngine", "LLMError", "LLMResult", "LLMUnavailableError", "ServerBusyError",
+    "LLMContextOverflowError",
     "LLMProviderManager", "MockLLM", "OpenAICompatibleLLM",
 ]

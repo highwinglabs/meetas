@@ -12,7 +12,7 @@ import pytest
 
 from core.analysis import build_prompt
 from core.analysis import schema
-from core.llm import LLMError, MockLLM, ServerBusyError
+from core.llm import LLMContextOverflowError, LLMError, MockLLM, ServerBusyError
 from core.service import UnknownMeetingError
 from core.store.db import session_scope
 from core.store.models import Meeting
@@ -484,11 +484,99 @@ def test_transcript_char_budget_follows_context_window():
     assert transcript_char_budget(cfg, 0) == 24000
     assert transcript_char_budget(cfg, 16384) == 24000
     assert transcript_char_budget(cfg, "bogus") == 24000
-    # 131072 - max(8192, 131072//8) - 4096 = 110592 tokens * 3 = 331776 chars
-    assert transcript_char_budget(cfg, 131072) == 331776
+    # 131072 - max(8192, 131072//8) - 4096 = 110592 tokens * 2.0 = 221184
+    # chars (2.0 chars/token: structured rows with timestamps tokenize far
+    # below plain prose -- the old 3.0 rate overshot the window by ~30%).
+    assert transcript_char_budget(cfg, 131072) == 221184
     # a larger configured answer budget shrinks the transcript room
     cfg2 = type("C", (), {"llm_max_tokens": 32000})()
-    assert transcript_char_budget(cfg2, 131072) < 331776
+    assert transcript_char_budget(cfg2, 131072) < 221184
+
+
+def test_transcript_char_budget_respects_prompt_token_cap():
+    """llm_max_prompt_tokens caps the prompt below the window-based budget.
+
+    A full-window prompt is legal but impractically slow to prefill on a
+    local 27B-class model (minutes of prompt processing, timeout risk), so
+    the analysis prompt is bounded separately from the context window."""
+    from core.analysis import transcript_char_budget
+    # cap 20000 -> (20000 - 4096 scaffolding) * 2.0 = 31808 chars
+    cfg = type("C", (), {"llm_max_tokens": 8192,
+                         "llm_max_prompt_tokens": 20000})()
+    assert transcript_char_budget(cfg, 131072) == 31808
+    # a cap below the safe floor clamps to the historical default
+    cfg_cap = type("C", (), {"llm_max_tokens": 8192,
+                             "llm_max_prompt_tokens": 16000})()
+    assert transcript_char_budget(cfg_cap, 131072) == 24000
+    # default-like cap 32000 on a 128k window:
+    # (32000 - 4096) * 2.0 = 55808 chars (~24k transcript tokens)
+    cfg2 = type("C", (), {"llm_max_tokens": 8192,
+                          "llm_max_prompt_tokens": 32000})()
+    assert transcript_char_budget(cfg2, 131072) == 55808
+    # a cap so small the usable budget drops below the floor -> safe default
+    cfg3 = type("C", (), {"llm_max_tokens": 8192,
+                          "llm_max_prompt_tokens": 8000})()
+    assert transcript_char_budget(cfg3, 131072) == 24000
+
+
+class _OverflowOnceLLM(MockLLM):
+    """MockLLM whose first call is rejected with a context overflow.
+
+    prompt_tokens/ctx_tokens = 100/50 -> shrink factor 0.9*50/100 = 0.45,
+    so the 2-segment test transcript drops to its first segment.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.overflowed = False
+        self.prompts: list = []
+
+    def complete(self, prompt, system=None, **opts):
+        self.prompts.append(prompt)
+        if not self.overflowed:
+            self.overflowed = True
+            raise LLMContextOverflowError(
+                "zu groß", prompt_tokens=100, ctx_tokens=50)
+        return super().complete(prompt, system=system, **opts)
+
+
+class _AlwaysOverflowLLM(MockLLM):
+    """MockLLM whose every call is rejected with a context overflow."""
+
+    def complete(self, prompt, system=None, **opts):
+        self.calls += 1
+        raise LLMContextOverflowError(
+            "zu groß", prompt_tokens=100, ctx_tokens=50)
+
+
+def test_analyze_context_overflow_shrinks_transcript_and_retries(
+        config, finalize_meeting):
+    """A server-reported overflow triggers exactly one shrunk retry.
+
+    The retry prompt must carry fewer segments than the first one, and the
+    analysis completes from the shorter transcript."""
+    eng = _OverflowOnceLLM()
+    svc, mid = _with_transcript(finalize_meeting, llm_engine=eng)
+    out = svc.analyze(mid)
+    assert out["status"] == "done"
+    assert len(eng.prompts) == 2  # one rejected call + one successful retry
+    first, second = eng.prompts
+    assert "S2" in first and "S2" not in second  # shrank to the 1st segment
+    assert "S1" in second
+
+
+def test_analyze_context_overflow_twice_fails_cleanly(config, finalize_meeting):
+    """If the shrunk prompt still overflows, fail clearly and store nothing."""
+    eng = _AlwaysOverflowLLM()
+    svc, mid = _with_transcript(finalize_meeting, llm_engine=eng)
+    with pytest.raises(LLMContextOverflowError):
+        svc.analyze(mid)
+    assert eng.calls == 2  # original + exactly one retry, no loop
+    detail = svc.get_meeting(mid)
+    assert detail["status"] == "failed"
+    jobs = [j for j in detail["jobs"] if j["stage"] == "analyze"]
+    assert jobs and jobs[0]["status"] == "failed"
+    assert jobs[0]["error"]
 
 
 def test_analyze_no_transcript_raises_without_status_flip(config, finalize_meeting):

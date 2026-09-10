@@ -27,7 +27,9 @@ from sqlalchemy import select
 
 from core.analysis import schema
 from core.jobs.queue import JobQueue
-from core.llm.base import LLMCancelledError, LLMEngine, LLMError
+from core.llm.base import (
+    LLMCancelledError, LLMContextOverflowError, LLMEngine, LLMError, LLMResult,
+)
 from core.logging_setup import get_logger
 from core.store.db import session_scope
 from core.store.models import Analysis, Meeting, TranscriptSegment
@@ -39,18 +41,28 @@ log = get_logger("ma.analysis")
 # model's window.
 _MAX_TRANSCRIPT_CHARS = 24000
 # Tokens reserved for the prompt scaffolding / instructions around the
-# transcript, and a conservative characters-per-token rate for German text
-# when converting the remaining input budget into a character limit.
+# transcript, and a conservative characters-per-token rate for the prompt
+# rows when converting the remaining input budget into a character limit.
+# The rows are NOT plain prose: every line carries a structured prefix
+# ("[S1 | Sprecher: X | 00:00:00.000-00:00:03.500] ") whose timestamps and
+# punctuation tokenize at well under 3 chars/token -- measured ~2.3 for
+# German. The rate must stay below that, otherwise the budget overestimates
+# the prompt and the server rejects it with exceed_context_size_error.
 _PROMPT_OVERHEAD_TOKENS = 4096
-_CHARS_PER_TOKEN = 3
+_CHARS_PER_TOKEN = 2.0
+# Safety margin applied when shrinking the transcript after a real
+# context-overflow rejection: target 90 % of the window, never 100 %.
+_OVERFLOW_RETRY_MARGIN = 0.9
 
 
 def transcript_char_budget(config: Any, window_tokens: Optional[int]) -> int:
     """Max transcript characters that fit into the model's context window.
 
     Reserves room for the prompt scaffolding and for the model's JSON answer
-    (the configured ``llm_max_tokens``, at least 1/8 of the window), converts
-    the remaining input budget to characters, and never goes below the safe
+    (the configured ``llm_max_tokens``, at least 1/8 of the window), caps the
+    prompt at the configured ``llm_max_prompt_tokens`` (a full-window prompt
+    is legal but impractically slow to prefill locally), converts the
+    remaining input budget to characters, and never goes below the safe
     historical default. A missing or too-small window yields the default.
     """
     try:
@@ -62,9 +74,13 @@ def transcript_char_budget(config: Any, window_tokens: Optional[int]) -> int:
     output_reserve = max(int(getattr(config, "llm_max_tokens", 0) or 0),
                         window // 8)
     usable = window - output_reserve - _PROMPT_OVERHEAD_TOKENS
+    prompt_cap = int(getattr(config, "llm_max_prompt_tokens", 0) or 0)
+    if prompt_cap > 0:
+        # The cap bounds the *whole* prompt, so the scaffolding is subtracted.
+        usable = min(usable, prompt_cap - _PROMPT_OVERHEAD_TOKENS)
     if usable < 8192:
         return _MAX_TRANSCRIPT_CHARS
-    return max(_MAX_TRANSCRIPT_CHARS, usable * _CHARS_PER_TOKEN)
+    return max(_MAX_TRANSCRIPT_CHARS, int(usable * _CHARS_PER_TOKEN))
 
 
 def build_prompt(
@@ -185,8 +201,16 @@ class AnalysisProcessor:
         # 3) The (slow) LLM call happens outside any open DB session.
         t0 = time.monotonic()
         try:
-            result = engine.complete(user_prompt, system=system_prompt,
-                                     cancel_event=cancel_event)
+            try:
+                result = engine.complete(user_prompt, system=system_prompt,
+                                         cancel_event=cancel_event)
+            except LLMContextOverflowError as overflow:
+                # The character budget is only an estimate of the token count;
+                # if the server rejected the prompt anyway, shrink the
+                # transcript by the server-reported ratio and retry once.
+                rows, result = self._shrink_and_retry(
+                    meeting_id, engine, title, rows, system_prompt, lang,
+                    overflow, cancel_event)
             if _cancelled():
                 return _finish_cancelled()
             raw = result.text
@@ -294,3 +318,53 @@ class AnalysisProcessor:
             "markdown": markdown,
             "created_at": created_at,
         }
+
+    def _shrink_and_retry(
+        self,
+        meeting_id: str,
+        engine: LLMEngine,
+        title: str,
+        rows: Sequence[Dict[str, Any]],
+        system_prompt: str,
+        lang: Optional[str],
+        overflow: LLMContextOverflowError,
+        cancel_event: Optional[threading.Event],
+    ) -> Tuple[list, LLMResult]:
+        """Re-send the analysis with a shorter transcript after the server
+        rejected the prompt as too large (``LLMContextOverflowError``).
+
+        The transcript budget is a character-based estimate of the token
+        count, which varies per tokenizer and per transcript content. The
+        server reports how many tokens the prompt actually used and how many
+        it offers; shrink the transcript by that ratio (times a safety
+        margin), rebuild the prompt and retry exactly once. A second
+        overflow, or a transcript that cannot be shrunk further, re-raises
+        the original overflow error (which marks the job failed like any
+        other ``LLMError``).
+        """
+        current = sum(len(schema._line(r)) for r in rows)
+        if not overflow.prompt_tokens or not overflow.ctx_tokens or not rows:
+            raise overflow
+        factor = (overflow.ctx_tokens * _OVERFLOW_RETRY_MARGIN
+                  / overflow.prompt_tokens)
+        rows2 = _trim(rows, max(1, int(current * factor)))
+        if not rows2 or len(rows2) >= len(rows):
+            raise overflow
+        log.warning(
+            "analyze_context_overflow meeting=%s prompt_tokens=%d ctx_tokens=%d "
+            "transcript_chars=%d->%d segments=%d->%d "
+            "(retry with shrunk transcript)",
+            meeting_id[:8], overflow.prompt_tokens, overflow.ctx_tokens,
+            current, sum(len(schema._line(r)) for r in rows2),
+            len(rows), len(rows2),
+        )
+        try:
+            result = engine.complete(
+                schema.build_user_prompt(title, rows2, lang),
+                system=system_prompt, cancel_event=cancel_event)
+        except LLMContextOverflowError:
+            log.error(
+                "analyze_context_overflow_again meeting=%s "
+                "(shrunk transcript still too large; failing)", meeting_id[:8])
+            raise overflow
+        return list(rows2), result
