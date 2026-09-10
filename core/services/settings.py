@@ -65,6 +65,7 @@ class SettingsMixin:
                 "quality_asr_model": cfg.quality_asr_model,
                 "asr_language": cfg.asr_language or "auto",
                 "analysis_language": cfg.analysis_language,
+                "ui_language": cfg.ui_language or "system",
                 "default_speaker_mode": cfg.default_speaker_mode,
                 "default_analysis_template": cfg.default_analysis_template,
                 "default_summary_model": cfg.default_summary_model,
@@ -117,7 +118,8 @@ class SettingsMixin:
             "asr_model", "live_asr_model", "live_fallback_asr_model",
             "quality_asr_model", "asr_language", "analysis_language",
             "default_speaker_mode", "default_analysis_template", "default_summary_model",
-            "quality_analysis_model", "live_transcription", "speaker_diarization",
+            "quality_analysis_model", "ui_language",
+            "live_transcription", "speaker_diarization",
             "live_window_s", "live_period_s", "live_tail_s",
             "auto_pipeline", "auto_analyze", "embeddings_enabled", "rag_enabled",
             "system_audio_enabled", "llm_base_url", "ollama_base_url", "llm_model",
@@ -165,6 +167,10 @@ class SettingsMixin:
             if key == "analysis_language" and value not in (
                     None, "", "wie_transkript", "de", "en"):
                 raise ValueError("Ungültige Auswertungssprache.")
+            if key == "ui_language" and value not in (None, "", "system", "de", "en"):
+                raise ValueError("Ungültige UI-Sprache.")
+            if key == "ui_language" and value in (None, "", "system"):
+                value = None  # "system" = resolve from the browser language
             if key in {"live_transcription", "speaker_diarization", "auto_pipeline", "auto_analyze",
                        "embeddings_enabled", "rag_enabled", "system_audio_enabled",
                        "network_allowed", "mic_enhancement_enabled"}:

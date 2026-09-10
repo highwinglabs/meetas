@@ -302,6 +302,7 @@ export interface AppSettings {
   quality_asr_model: string;
   asr_language: string;
   analysis_language?: string;
+  ui_language?: "system" | "de" | "en";
   default_speaker_mode: "off" | "live" | "after";
   default_analysis_template: string;
   default_summary_model: string;

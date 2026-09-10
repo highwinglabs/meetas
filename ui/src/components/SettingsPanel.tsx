@@ -55,7 +55,10 @@ export default function SettingsPanel() {
     setError(null);
     setMessage(null);
     try {
-      const updated = await api.updateSettings(settings, enablingNetwork);
+      // The language select is live-bound to the i18n pref (and persisted
+      // there immediately); merge it in so saving the other settings can't
+      // roll back a language change made in this same session.
+      const updated = await api.updateSettings({ ...settings, ui_language: pref }, enablingNetwork);
       setSettings(updated);
       setSavedSettings(updated);
       setMessage(t("settings.saved"));

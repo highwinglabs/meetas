@@ -215,6 +215,28 @@ def test_live_window_settings_are_validated_before_update(client):
     assert response.json()["live_tail_s"] == 3.0
 
 
+def test_ui_language_persists_in_config(client):
+    # The UI language preference is persisted server-side so it survives
+    # browsers that wipe site storage (e.g. LibreWolf).
+    c, _ = client
+    assert c.get("/config").json()["ui_language"] == "system"
+
+    response = c.put("/config", json={"values": {"ui_language": "de"}})
+    assert response.status_code == 200
+    assert response.json()["ui_language"] == "de"
+    assert c.get("/config").json()["ui_language"] == "de"
+
+    # "system" explicitly resets to the browser language.
+    response = c.put("/config", json={"values": {"ui_language": "system"}})
+    assert response.status_code == 200
+    assert response.json()["ui_language"] == "system"
+
+    # Invalid values are rejected without touching the stored value.
+    response = c.put("/config", json={"values": {"ui_language": "fr"}})
+    assert response.status_code == 400
+    assert c.get("/config").json()["ui_language"] == "system"
+
+
 def test_live_period_bounds_are_shared_between_config_and_settings(client, monkeypatch):
     # Regression (L14): the settings API clamp and the config/env validation
     # must agree on the live_period_s bounds, so a value that is legal in one

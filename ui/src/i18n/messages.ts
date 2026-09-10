@@ -37,7 +37,7 @@ const de = {
   "lang.system": "Systemstandard",
   "lang.de": "Deutsch",
   "lang.en": "English",
-  "lang.hint": "Gilt für Beschriftungen, Status, Datum und Nachrichten. Unabhängig von Transkript- und Analysesprache.",
+  "lang.hint": "Gilt für Beschriftungen, Status, Datum und Nachrichten. Unabhängig von Transkript- und Analysesprache. Die Auswahl wird im Core gespeichert und bleibt auch über Browser-Neustarts und geleerte Browser-Daten erhalten.",
   // Client-side API errors (api.ts, no React context)
   "api.noConnection": "Keine Verbindung zum lokalen Core. Läuft `meeting-core daemon`?",
   "api.httpError": "HTTP {status}",
@@ -710,7 +710,7 @@ const en: Record<MessageKey, string> = {
   "lang.system": "System default",
   "lang.de": "Deutsch",
   "lang.en": "English",
-  "lang.hint": "Applies to labels, status, dates and messages. Independent of transcription and analysis language.",
+  "lang.hint": "Applies to labels, status, dates and messages. Independent of transcription and analysis language. The choice is stored in the core and survives browser restarts and cleared site data.",
   // Client-side API errors (api.ts, no React context)
   "api.noConnection": "Cannot reach the local core. Is `meeting-core daemon` running?",
   "api.httpError": "HTTP {status}",

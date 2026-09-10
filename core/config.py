@@ -138,6 +138,10 @@ class Config:
     # the transcript's own language; "de"/"en" force that language. This is the
     # *global seed* for new meetings; each meeting stores its own choice.
     analysis_language: str = "wie_transkript"
+    # UI language preference, persisted server-side so it survives browsers
+    # that wipe site storage (e.g. LibreWolf). None = "system": resolve from
+    # the browser language; "de"/"en" force that language.
+    ui_language: Optional[str] = None
     default_speaker_mode: str = "off"  # off | after (manual) | live (opt-in)
     default_analysis_template: str = "standard"
     default_summary_model: str = "qwen3.5:4b"
@@ -554,6 +558,10 @@ class Config:
                 not isinstance(cfg.asr_language, str)
                 or cfg.asr_language not in {"", "auto", "de", "en"}):
             cfg.asr_language = defaults.asr_language
+        if cfg.ui_language is not None and (
+                not isinstance(cfg.ui_language, str)
+                or cfg.ui_language not in {"de", "en"}):
+            cfg.ui_language = defaults.ui_language
         if (not isinstance(cfg.analysis_language, str)
                 or cfg.analysis_language not in {"wie_transkript", "de", "en"}):
             cfg.analysis_language = defaults.analysis_language
